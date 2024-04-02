@@ -27,14 +27,12 @@ def main():
             if prev == "54" and hex_data == "2c":
                 # Из out_data можно получить все данные
                 out_data = parse_data(result[key])
-
                 # # Блок выводит данные облака точек, если они не ошибка
                 if "error" not in out_data.keys():
 
                     point_cloud = out_data["PointCloud"].point_cloud
                     start_angle = out_data["start_angle"]
                     end_angle = out_data["end_angle"]
-
                     # дополняет PointCloud.point_cloud ключом angle
                     interpolation(point_cloud, start_angle, end_angle)
 
@@ -63,7 +61,7 @@ def main():
 
         x_coord = []
         y_coord = []
-
+        pprint(graphic_data)
         for measurement in graphic_data:
             for key in measurement.keys():
                 x_coord.append(measurement[key]["x"])

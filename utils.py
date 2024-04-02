@@ -1,3 +1,5 @@
+from typing import Any, Tuple, List
+
 from PointCloud import PointCloud
 import math
 import matplotlib.pyplot as plt
@@ -58,7 +60,7 @@ def interpolation(point_cloud: dict, start_angle: float, end_angle: float) -> di
     return point_cloud
 
 
-def from_pt_to_coordinates(point_cloud: dict):
+def from_pt_to_coordinates(point_cloud: dict) -> dict:
     coordinates = {}
     for key, point in point_cloud.items():
         x = math.sin(math.radians(point['angle'])) * point['distance']
@@ -66,6 +68,18 @@ def from_pt_to_coordinates(point_cloud: dict):
         coordinates[key] = {"x": round(x, 2), "y": round(y, 2)}
 
     return coordinates
+
+
+def transfer_to_coordinates(point_cloud: dict) -> tuple[list[Any], list[Any]]:
+    x_coordinates = []
+    y_coordinates = []
+    for key, point in point_cloud.items():
+        x = math.sin(math.radians(point['angle'])) * point['distance']
+        y = math.cos(math.radians(point['angle'])) * point['distance']
+        x_coordinates.append(round(x, 2))
+        y_coordinates.append(round(y, 2))
+
+    return x_coordinates, y_coordinates
 
 
 def plot_points(x_coords, y_coords):
@@ -82,4 +96,6 @@ def plot_points(x_coords, y_coords):
 
     # Отображение графика
     plt.show()
+    return plt
+
 
