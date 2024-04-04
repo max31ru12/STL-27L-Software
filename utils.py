@@ -73,16 +73,20 @@ def from_pt_to_coordinates(point_cloud: dict) -> dict:
 def transfer_to_coordinates(point_cloud: dict) -> tuple[list[Any], list[Any]]:
     x_coordinates = []
     y_coordinates = []
-    for key, point in point_cloud.items():
-        x = math.sin(math.radians(point['angle'])) * point['distance']
-        y = math.cos(math.radians(point['angle'])) * point['distance']
-        x_coordinates.append(round(x, 2))
-        y_coordinates.append(round(y, 2))
+    try:
+        for key, point in point_cloud.items():
+            x = math.sin(math.radians(point['angle'])) * point['distance']
+            y = math.cos(math.radians(point['angle'])) * point['distance']
+            x_coordinates.append(round(x, 2))
+            y_coordinates.append(round(y, 2))
+    except KeyError:
+        pass
 
     return x_coordinates, y_coordinates
 
 
 def plot_points(x_coords, y_coords):
+    plt.clf()
     # Построение точек
     plt.scatter(x_coords, y_coords, color='blue', marker='o')
 
@@ -99,3 +103,19 @@ def plot_points(x_coords, y_coords):
     return plt
 
 
+# def plot_points(plt, x_coords, y_coords):
+#     plt.clf()
+#     # Построение точек
+#     plt.scatter(x_coords, y_coords, color='blue', marker='o')
+#
+#     plt.axhline(0, color='black', linestyle='--', linewidth=0.5)
+#     plt.axvline(0, color='black', linestyle='--', linewidth=0.5)
+#
+#     # Добавление заголовка и меток осей
+#     plt.title('Облако точек')
+#     plt.xlabel('Ось X')
+#     plt.ylabel('Ось Y')
+#
+#     # Отображение графика
+#     plt.show()
+#     return plt
