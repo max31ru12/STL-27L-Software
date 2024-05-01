@@ -25,8 +25,10 @@ class PointCloud:
                 key = f"Point {count}"
                 value = int(point[1].strip() + point[0].strip(), 16)
                 intensity = int(point[2], 16)
-                point_cloud[key] = {"distance": value,
-                                    "intensity": intensity}
+                point_cloud[key] = {
+                    "distance": value,
+                    "intensity": intensity
+                }
                 count += 1
             return point_cloud
         else:

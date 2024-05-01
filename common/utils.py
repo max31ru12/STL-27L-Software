@@ -37,14 +37,14 @@ def parse_data(data_sixteen: str) -> dict:
 def interpolation(point_cloud: dict, start_angle: float, end_angle: float) -> dict:
     """Функция интерполяции точек по углу: дополняет point_cloud полем angle"""
     if 'error' not in point_cloud.keys():
-        if len(point_cloud) > 2: # Это костыль нужен тогда, когда в измерении всего одна точка
+        if len(point_cloud) > 2:  # Это костыль нужен тогда, когда в измерении всего одна точка
             step = (end_angle - start_angle) / (len(point_cloud) - 1)
 
             for i in range(0, len(point_cloud)):
                 key = f"Point {i + 1}"
                 angle = start_angle + step * i
                 point_cloud[key]["angle"] = angle
-        else: # Это костыль нужен тогда, когда в измерении всего одна точка
+        else:  # Это костыль нужен тогда, когда в измерении всего одна точка
             point_cloud["Point 1"]["angle"] = (end_angle - start_angle) / 2
     else:
         point_cloud["interpolation"] = "Interpolation Error"
@@ -134,11 +134,6 @@ def measure_one_spin(conn: serial.Serial) -> (list, list):
                     interpolation(point_cloud, start_angle, end_angle)
 
                     if 356 < angle_difference < 360:
-                        # print(f"{start_angle=}")
-                        # print(f"{prev_start_angle=}")
-                        # print(f"{angle_difference=}")
-                        # print("\n")
-                        # return mapping
                         return make_coordinates_from_pc_list(mapping)
 
                     prev_start_angle = start_angle
@@ -159,6 +154,5 @@ def measure_one_spin(conn: serial.Serial) -> (list, list):
                 result[counter] += f"{hex_data} "
             prev = hex_data
         return make_coordinates_from_pc_list(mapping)
-        # return mapping
     except KeyboardInterrupt:
         conn.close()

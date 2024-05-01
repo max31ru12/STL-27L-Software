@@ -1,27 +1,23 @@
 import time
-
-import serial
-
+from serial import Serial
 
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from common.utils import plot_points, measure_one_spin
+from common.models import MoveNode
+from common.utils import plot_points, measure_one_spin, measure_one_spin_generator
 from common.config import Settings
 from common.filters import filter_noises
 
-
-SERIAL = serial.Serial(Settings.PORT,
-                       baudrate=Settings.BAUDRATE,
-                       stopbits=Settings.STOP_BITS,
-                       bytesize=Settings.DATA_LENGTH,
-                       parity=Settings.PARITY,
-                       xonxoff=Settings.FLOW_CONTROL)
-# fig, ax = plt.subplots()
+SERIAL = Serial(Settings.PORT,
+                baudrate=Settings.BAUDRATE,
+                stopbits=Settings.STOP_BITS,
+                bytesize=Settings.DATA_LENGTH,
+                parity=Settings.PARITY,
+                xonxoff=Settings.FLOW_CONTROL)
 
 
 def update(frame):
-
     x_coord, y_coord = measure_one_spin(SERIAL)
     x_coord, y_coord = filter_noises(x_coord, y_coord)
     # print(max(x_coord), min(x_coord))
@@ -40,27 +36,25 @@ def update(frame):
 # plt.show()
 
 filter_set = set()
+current_node = MoveNode(straight_move=0, theta=0)
 
 for i in range(100):
+
+    print(i)
+    print(current_node.straight_move)
     x_coord, y_coord = measure_one_spin(SERIAL)
+
     x_coord, y_coord = filter_noises(x_coord, y_coord)
-
-
+    x_coord, y_coord = current_node.get_current_coordinates(x_coord, y_coord)
 
     filter_set.update(set(zip(x_coord, y_coord)))
     x, y = zip(*filter_set)
 
-
-    print(len(x))
-
-    # filter_set.update()
-
-    plt.scatter(x, y, s=0.1)
-    plt.show()
-
-    # plt = plot_points(x_coord, y_coord)
-    time.sleep(0.5)
-    plt.close()
+    if i == 50:
+        time.sleep(10)
+        current_node = MoveNode(straight_move=297, theta=0, prev=current_node)
+        SERIAL.flushInput()
 
 
-
+plt.scatter(x, y, s=0.1)
+plt.show()
