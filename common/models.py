@@ -1,20 +1,17 @@
 from math import sin, cos, radians, degrees
-from matplotlib import pyplot as plt
 
 
 class PointCloud:
 
     def __init__(self, lidar_data: list):
-        # array of gotten measured data
-        self.data = lidar_data
-        # LSB, MSB, intensity
-        self.three_values = self.__distances()
+        self.data = lidar_data  # array of gotten measured data
+        self.three_values = self.__distances()  # LSB, MSB, intensity
 
     def __distances(self) -> list:
         result = []
         if len(self.data) % 3 == 0:
             for n in range(3, len(self.data) + 1, 3):
-                result.append(tuple(self.data[n-3:n]))
+                result.append(tuple(self.data[n - 3:n]))
             return result
         else:
             return []
@@ -41,7 +38,7 @@ class PointCloud:
 
 
 class MoveNode:
-    # уточнить единицы измерения
+    """Linked-List-like data structure"""
     def __init__(self, straight_move: float, theta: float, prev: "MoveNode" = None) -> None:
         self.straight_move = straight_move  # прямое пермещение (в мм?)
         self.theta = radians(theta)  # угол поворота (в градусах?)
@@ -55,6 +52,7 @@ class MoveNode:
 
     @property
     def path(self) -> tuple[float, float, float]:
+        """Return total path (not trajectory)"""
         x_path, y_path = self.coordinate_bias
         current_theta = self.theta
         current_node = self
@@ -68,25 +66,21 @@ class MoveNode:
         return x_path, y_path, degrees(current_theta)
 
     def delete_bias(self, x_coords: list, y_coords: list) -> tuple[list, list]:
+        """Returns relative coordinates (relative to the current coordinate system)"""
         x_bias, y_bias, theta_bias = self.path
         x_coords = [x - x_bias for x in x_coords]
         y_coords = [y - y_bias for y in y_coords]
         return x_coords, y_coords
 
+    def get_current_coordinates(self, x_coords: list[float], y_coords: list[float]):
+        """
+        Returns absolute coordinates matching the initial coordinate system
+        (relative to the initial coordinate system)
+        """
+        x_bias, y_bias, _ = self.path
+        x_coords = [x + x_bias for x in x_coords]
+        y_coords = [y + y_bias for y in y_coords]
+        return x_coords, y_coords
 
-x, y = [1, 2, 3], [1, 2, 3]
 
-x_2, y_2 = [409, 410, 411], [1, 2, 3]
-
-plt.scatter(x, y)
-plt.show()
-
-node_1 = MoveNode(straight_move=4, theta=0)
-print(node_1.prev)
-node_2 = MoveNode(straight_move=4, theta=0, prev=node_1)
-print(node_2.prev)
-node_3 = MoveNode(straight_move=400, theta=0, prev=node_2)
-print(node_3.prev)
-
-print(node_3.delete_bias(x_2, y_2))
 

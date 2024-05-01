@@ -60,6 +60,7 @@ for i in range(100):
 
     # plt = plot_points(x_coord, y_coord)
     time.sleep(0.5)
+    plt.close()
 
 
 
