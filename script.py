@@ -1,6 +1,9 @@
 import serial
-from pprint import pprint
-from utils import parse_data, interpolation, from_pt_to_coordinates, plot_points, Settings
+
+from matplotlib import pyplot as plt
+
+from common import parse_data, interpolation, from_pt_to_coordinates, plot_points
+from common.config import Settings
 
 
 def main():
@@ -61,13 +64,14 @@ def main():
 
         x_coord = []
         y_coord = []
-        pprint(graphic_data)
+        # pprint(graphic_data)
         for measurement in graphic_data:
             for key in measurement.keys():
                 x_coord.append(measurement[key]["x"])
                 y_coord.append(measurement[key]["y"])
         # pprint(graphic_data)
         plot_points(x_coord, y_coord)
+        plt.show()
 
 
 if __name__ == "__main__":
