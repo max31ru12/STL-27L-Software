@@ -59,12 +59,11 @@ class MoveNode:
         current_theta = self.theta
         current_node = self
         while current_node.prev is not None:
-            x_bias, y_bias = self.prev.coordinate_bias
+            x_bias, y_bias = current_node.prev.coordinate_bias
             x_path += x_bias
             y_path += y_bias
             current_theta += self.prev.theta
             current_node = current_node.prev
-
         return x_path, y_path, degrees(current_theta)
 
     def delete_bias(self, x_coords: list, y_coords: list) -> tuple[list, list]:
@@ -83,6 +82,3 @@ class MoveNode:
         x_coords = [x + x_bias for x in x_coords]
         y_coords = [y + y_bias for y in y_coords]
         return x_coords, y_coords
-
-
-
