@@ -2,7 +2,7 @@ from typing import Any
 
 from matplotlib.collections import PathCollection
 
-from .models import PointCloud
+from .models import PointCloud, MoveNode
 import math
 import matplotlib.pyplot as plt
 import serial
@@ -108,6 +108,18 @@ def plot_points(x_coords: list, y_coords: list) -> PathCollection:
     return scatter
 
 
+def plot_lidar_localization(current_node: MoveNode) -> None:
+
+    current_bias = current_node.calculate_total_bias()
+    plt.scatter(x=current_bias[0], y=current_bias[1], color='red')
+
+
+def plot_lidar_lines(current_node: MoveNode, x_coords: list[float], y_coords: list[float]):
+    x0, y0 = current_node.calculate_total_bias()
+    for i in range(len(x_coords)):
+        plt.plot([x0, x_coords[i]], [y0, y_coords[i]], color='gray')
+
+
 def measure_one_spin(conn: serial.Serial) -> (list, list):
     """Returns a list of dicts of PointCloud's per 360 degrees"""
     result = {}
@@ -156,3 +168,7 @@ def measure_one_spin(conn: serial.Serial) -> (list, list):
         return make_coordinates_from_pc_list(mapping)
     except KeyboardInterrupt:
         conn.close()
+
+
+
+
