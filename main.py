@@ -22,7 +22,7 @@ current_node = MoveNode(straight_move=0, theta=0)
 plt.scatter(x=0, y=0, color='red')
 
 
-for i in range(1, 20):
+for i in range(1, 30):
 
     print(i)
 
@@ -38,9 +38,15 @@ for i in range(1, 20):
     if i % 10 == 0:
         move = float(input("Введите перемещение: "))
         theta = float(input("Введите угол: "))
+        x_lines, y_lines = current_node.get_scanned_points()
+        plot_lidar_lines(current_node, x_lines, y_lines)
         current_node = MoveNode(straight_move=move, theta=theta, prev=current_node)
         plot_lidar_localization(current_node)
         SERIAL.flushInput()
+
+
+x_lines, y_lines = current_node.get_scanned_points()
+plot_lidar_lines(current_node, x_lines, y_lines)
 
 
 plt.scatter(x, y, s=0.1)
