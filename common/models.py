@@ -41,44 +41,61 @@ class PointCloud:
 
 class MoveNode:
     """Linked-List-like data structure"""
+
+    counter = 0
+
+    def __new__(cls, *args, **kwargs):
+        cls.counter += 1
+        return super().__new__(cls)
+
     def __init__(self, straight_move: float, theta: float, prev: "MoveNode" = None) -> None:
         self.straight_move = straight_move  # прямое пермещение (в мм?)
+        # угол поворота поворачивает текущую систему координат относительно предыдущего узла
         self.theta = radians(theta)  # угол поворота (в градусах?)
         self.prev = prev
+        self.ppp = self.counter
+        self.__total_theta = 0
 
-    @property
-    def coordinate_bias(self) -> tuple[float, float]:
-        x_d = self.straight_move * cos(self.theta)
-        y_d = self.straight_move * sin(self.theta)
-        return x_d, y_d
+    def __str__(self):
+        return f"NODE: {self.ppp}"
 
-    @property
-    def path(self) -> tuple[float, float, float]:
-        """Return total path (not trajectory)"""
-        x_path, y_path = self.coordinate_bias
-        current_theta = self.theta
+    def rotate_points(self, x_coords: list[float], y_coords: list[float]) -> (list[float], list[float]):
+        """ метод поворачивает систему координат """
+        rotated_x = []
+        rotated_y = []
+        for x, y in zip(x_coords, y_coords):
+            new_x = x * cos(self.theta) - y * sin(self.theta)
+            new_y = x * sin(self.theta) + y * cos(self.theta)
+            rotated_x.append(new_x)
+            rotated_y.append(new_y)
+        return rotated_x, rotated_y
+
+    def get_total_theta(self) -> float:
+        """ Return total angle in radians """
         current_node = self
+        self.__total_theta += self.theta
         while current_node.prev is not None:
-            x_bias, y_bias = current_node.prev.coordinate_bias
-            x_path += x_bias
-            y_path += y_bias
-            current_theta += self.prev.theta
+            self.__total_theta += current_node.prev.theta
             current_node = current_node.prev
-        return x_path, y_path, degrees(current_theta)
+        return self.__total_theta
 
-    def delete_bias(self, x_coords: list, y_coords: list) -> tuple[list, list]:
-        """Returns relative coordinates (relative to the current coordinate system)"""
-        x_bias, y_bias, theta_bias = self.path
-        x_coords = [x - x_bias for x in x_coords]
-        y_coords = [y - y_bias for y in y_coords]
-        return x_coords, y_coords
+    def calculate_node_bias(self) -> tuple[float, float]:
+        THETA = self.get_total_theta()
+        x_bias = self.straight_move * cos(THETA)
+        y_bias = self.straight_move * sin(THETA)
+        return x_bias, y_bias
 
-    def get_current_coordinates(self, x_coords: list[float], y_coords: list[float]):
-        """
-        Returns absolute coordinates matching the initial coordinate system
-        (relative to the initial coordinate system)
-        """
-        x_bias, y_bias, _ = self.path
-        x_coords = [x + x_bias for x in x_coords]
-        y_coords = [y + y_bias for y in y_coords]
-        return x_coords, y_coords
+
+n1 = MoveNode(straight_move=0, theta=0)
+
+n2 = MoveNode(straight_move=1, theta=0, prev=n1)
+print(n2.calculate_node_bias())
+
+n3 = MoveNode(straight_move=10, theta=90, prev=n2)
+print(n3.calculate_node_bias())
+
+# n4 = MoveNode(straight_move=2, theta=90, prev=n3)
+# print(n4.calculate_node_bias())
+#
+# n5 = MoveNode(straight_move=5, theta=0, prev=n4)
+# print(n5.calculate_node_bias())
