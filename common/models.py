@@ -57,7 +57,6 @@ class MoveNode:
     def add_scanned_points(self, x_coords: list[float], y_coords: list[float]) -> None:
         self.filter_set.update(set(zip(x_coords, y_coords)))
 
-
     def rotate_points(self, x_coords: list[float], y_coords: list[float]) -> (list[float], list[float]):
         """ метод поворачивает систему координат """
         rotated_x = []
