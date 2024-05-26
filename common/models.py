@@ -1,4 +1,4 @@
-from math import sin, cos, radians, degrees
+from math import sin, cos, radians  # degrees
 
 
 class PointCloud:
@@ -111,36 +111,82 @@ class MoveNode:
         return self.rotate_points(x_coords, y_coords)
 
 
+def compute_next_pose(current_pose: [float, float, float], control: [float, float, float]):
+    x, y, theta = current_pose
+    delta_x, delta_y, delta_theta = control
+    return [x + delta_x, y + delta_y, theta + delta_theta]
+
+
+class Map:
+
+    pass
+
+
+class Vertex:
+
+    def __init__(self, pose: list[float, float, float]) -> None:
+        self.pose = pose  # [x, y, theta]
+        self.point_cloud: list[list[float], list[float]] | None = None
+
+    def rotate_point_cloud(self) -> (list[float], list[float]):
+        """ метод поворачивает систему координат облака точек """
+        theta = self.pose[2]
+        x_coords, y_coords = self.point_cloud[0], self.point_cloud[1]
+        rotated_x = []
+        rotated_y = []
+        for x, y in zip(x_coords, y_coords):
+            new_x = x * cos(theta) - y * sin(theta)
+            new_y = x * sin(theta) + y * cos(theta)
+            rotated_x.append(new_x)
+            rotated_y.append(new_y)
+        return rotated_x, rotated_y
+
+
+class Edge:
+
+    # Храним показания датчиков, узлы i и j
+    def __init__(self, start: Vertex, end: Vertex, measurement: list[float, float, float]) -> None:
+        self.start_vertex = start  # i
+        self.end_vertex = end  # j
+        self.measurement = measurement  # Z (dx, dy, dtheta) - это показания одометра
+        self.prediction = self.__calculate_prediction()  # Z с крышкой (dx, dy, dtheta)
+
+    def __calculate_prediction(self) -> list[float, float, float]:
+        """ Предсказываем на основе данных одометрии и данных предыдущего узла """
+        x_i, y_i, theta_i = self.start_vertex.pose
+        dx, dy, dtheta = self.measurement
+
+        # Предсказанное относительное положение (с учетом текущей ориентации theta_i)
+        pred_x = x_i + dx * cos(theta_i) - dy * sin(theta_i)
+        pred_y = y_i + dx * sin(theta_i) + dy * cos(theta_i)
+        pred_theta = theta_i + dtheta
+        return [pred_x, pred_y, pred_theta]
+
+    def compute_error(self) -> list[float, float, float]:
+        """ Считаем разницу между измеренными данными и предсказанными (разница между векторами состояния) """
+        z_pose_j = self.end_vertex.pose  # Измеренное относительное положение вершины j
+        z_prediction = self.prediction  # Предсказанное относительное положение вершины j
+        e_ij = [z_pose_j[i] - z_prediction[i] for i in range(len(z_pose_j))]  # Вектор ошибки
+        return e_ij
+
+
 if __name__ == "__main__":
 
-    n1 = MoveNode(straight_move=0, theta=0)
-    bias1 = n1.calculate_bias()
-    # print(degrees(n1.get_total_theta()))
-    print(n1.calculate_bias())
+    # старт
+    v1 = Vertex([263, 77, 0])
+    print(f"{v1.pose=}")
 
-    n2 = MoveNode(straight_move=1, theta=0, prev=n1)
-    bias2 = n2.calculate_bias()
-    # print(degrees(n2.get_total_theta()))
-    print(n2.calculate_bias())
+    # измерение одометрии (x, y, theta)
+    odometry = (1000, 500, 30)
+    next_pose = compute_next_pose(v1.pose, odometry)
 
-    n3 = MoveNode(straight_move=10, theta=90, prev=n2)
-    bias3 = n3.calculate_bias()
-    # print(degrees(n3.get_total_theta()))
-    print(n3.calculate_bias())
+    # Вторая вершина
+    v2 = Vertex(next_pose)
+    print(v2.pose)
 
-    n4 = MoveNode(straight_move=2, theta=90, prev=n3)
-    bias4 = n4.calculate_bias()
-    # print(degrees(n4.get_total_theta()))
-    print(n4.calculate_bias())
-    #
-    n5 = MoveNode(straight_move=5, theta=0, prev=n4)
-    bias5 = n5.calculate_bias()
-    # print(degrees(n5.get_total_theta()))
-    print(n5.calculate_bias())
+    odometry = (400, 50000, 147)
+    next_pose = compute_next_pose(v2.pose, odometry)
+    v3 = Vertex(next_pose)
+    print(v3.pose)
 
-    total = (bias1[0] + bias2[0] + bias3[0] + bias4[0] + bias5[0], bias1[1] + bias2[1] + bias3[1] + bias4[1] + bias5[1])
-
-    # print(total)
-
-    print("\n\n\n\n\n\n")
-    n5.calculate_total_bias()
+    # e12 = Edge(v1, v2, odometry)
