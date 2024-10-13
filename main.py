@@ -1,8 +1,4 @@
-import time
-from math import degrees
-
 from serial import Serial
-
 from matplotlib import pyplot as plt
 
 from common.models import MoveNode
@@ -23,8 +19,6 @@ plt.scatter(x=0, y=0, color='red')
 
 
 for i in range(1, 30):
-
-    print(i)
 
     x_coords, y_coords = measure_one_spin(SERIAL)
     x_coords, y_coords = filter_noises(x_coords, y_coords)
