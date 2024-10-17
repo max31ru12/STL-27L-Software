@@ -1,52 +1,50 @@
-from typing import Any, Sequence
-
-import numpy as np
 import cv2
-from cv2 import Mat
-from numpy import ndarray, dtype, generic
+import numpy as np
+import matplotlib.pyplot as plt
 
-from odometry.cv_utils import make_image_gray, detect_contours, binarize_image, detect_edges
-
-capture = cv2.VideoCapture(0)
+from visual_odometry import VisualOdometry
 
 
+plt.ion()  # Turn on interactive mode
+fig, ax = plt.subplots()
+line, = ax.plot([], [], marker='o')
+ax.set_xlim(-100, 100)  # Adjust based on expected path range
+ax.set_ylim(-100, 100)
+ax.set_xlabel('X axis')
+ax.set_ylabel('Z axis')
+ax.set_title('Real-Time Estimated Path')
+
+
+odometry = VisualOdometry(0, 0.95)
+current_pose = np.eye(4)
+estimated_path = []
+
+i = 0
 while True:
-    # ret: bool - удачно ли захвачено изображение
-    ret, img = capture.read()
 
-    gray_image = make_image_gray(img)
+    odometry.read_image(gray=False)
 
-    lined_img = cv2.Canny(gray_image, 90, 90)
+    prev_image_matches, cur_image_matches = odometry.get_matches()
+    if prev_image_matches is None and cur_image_matches is None:
+        continue
+    transf = odometry.get_pose(prev_image_matches, cur_image_matches)
+    if np.isnan(transf).any() or np.isinf(transf).any():
+        print("Ошибка: матрица трансформации содержит NaN или бесконечные значения")
+        continue
+    current_pose = np.matmul(current_pose, np.linalg.inv(transf))
 
-    cv2.imshow("Lined", lined_img)
-
-
-    # Отрисовка контуров
-    # _, thresh = binarize_image(gray_image)
-    #
-    # contours, hierarchy = detect_contours(thresh)
-    # cv2.drawContours(
-    #     image=img,
-    #     contours=contours,
-    #     contourIdx=-1,
-    #     color=(0, 255, 0),
-    #     thickness=1,
-    #     lineType=cv2.LINE_AA
-    # )
-
-
-    # cv2.waitKey(50)
-    # cv2.imwrite('contours_none_image1.jpg', img)
-    # img - трехмерная матрица с тремя значениями интенсивности [B, G, R]
-    # img[1, 1] - обращение к пикселю 1, 1
-    # ширина и высота изображения, channels - кол-во цветовых каналов (RGB)
-    # height, width = gray_image.shape
-    # cv2.imshow('Video', gray_image)
-    # print(f"iteration:: {gray_image[1, 1]} size: {gray_image.size} width: {width}, height: {height}")
-    # print(f"intensity mean: {np.mean(gray_image)}")
+    estimated_path.append((current_pose[0, 3], current_pose[2, 3]))
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-capture.release()
-cv2.destroyAllWindows()
+    x, y = zip(*estimated_path)
+    line.set_data(x, y)
+    ax.relim()
+    ax.autoscale_view(True, True, True)
+    plt.draw()
+    plt.pause(0.01)
+
+x, y = zip(estimated_path)
+
+plt.plot(x, y, marker='o')
