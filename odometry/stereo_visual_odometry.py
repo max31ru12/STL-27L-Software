@@ -353,7 +353,7 @@ if __name__ == "__main__":
     new_frame_left = None
     new_frame_right = None
 
-    cur_pose = start_pose
+    current_pose = start_pose
     frame_counter: int = 0
 
     while True:
@@ -368,12 +368,12 @@ if __name__ == "__main__":
 
         # Если процесс кадров активен и новые кадры успешно считаны
         if process_frames and ret1 and ret2:
-            transf = vo.get_pose(old_frame_left, old_frame_right, new_frame_left, new_frame_right)
-            cur_pose = cur_pose @ transf
+            transformation_matrix = vo.get_pose(old_frame_left, old_frame_right, new_frame_left, new_frame_right)
+            current_pose = current_pose @ transformation_matrix
             hom_array = np.array([[0, 0, 0, 1]])
-            hom_camera_pose = np.concatenate((cur_pose, hom_array), axis=0)
+            hom_camera_pose = np.concatenate((current_pose, hom_array), axis=0)
             camera_pose_list.append(hom_camera_pose)
-            estimated_path.append((cur_pose[0, 3], cur_pose[2, 3]))
+            estimated_path.append((current_pose[0, 3], current_pose[2, 3]))
 
         # Обновление предыдущих кадров текущими
         old_frame_left = new_frame_left
@@ -383,31 +383,31 @@ if __name__ == "__main__":
         total_time = end - start
         fps = 1 / total_time
 
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[1, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[1, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[1, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        cv2.putText(new_frame_left, str(np.round(current_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2,
                     (255, 0, 0), 1)
 
         cv2.imshow("img", new_frame_left)
