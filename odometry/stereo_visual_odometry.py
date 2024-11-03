@@ -1,6 +1,6 @@
 import time
 from os import PathLike
-from typing import Any
+from typing import Any, ClassVar
 
 import cv2
 import numpy as np
@@ -11,38 +11,29 @@ from scipy.optimize import least_squares
 Frame = cv2.Mat | np.ndarray[Any, np.dtype[np.generic]] | np.ndarray
 
 
-def visualize_path(estimated_path):
-    # Разбиваем estimated_path на X и Z координаты
-    x_coords = [pos[0] for pos in estimated_path]
-    z_coords = [pos[1] for pos in estimated_path]
-
-    # Создаём график
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Estimated Path")
-
-    # Подписи для графика
-    plt.xlabel("X Position")
-    plt.ylabel("Z Position")
-    plt.title("Estimated Path Visualization")
-    plt.legend()
-    plt.grid(True)
-    plt.axis('equal')  # Чтобы сохранить пропорции
-    plt.show()
-
-
 class StereoVisualOdometry:  # noqa
+
+    lk_params: ClassVar = dict(winSize=(15, 15),
+                               flags=cv2.MOTION_AFFINE,
+                               maxLevel=3,
+                               criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.03))
+    EARLY_TERMINATION_THRESHOLD: ClassVar[int] = 5
 
     def __init__(self, left_camera_number: int = 1, right_camera_number: int = 2):
         # Cameras
-        # self.left_capture = cv2.VideoCapture(left_camera_number)
-        # self.right_capture = cv2.VideoCapture(right_camera_number)
+        self.previous_matches = [np.array([0.0, 0.0, 0.0]) for _ in range(4)]
+        self.left_capture = cv2.VideoCapture(left_camera_number)
+        self.right_capture = cv2.VideoCapture(right_camera_number)
 
         self.K_left, self.P_left = self.__load_calib("calib.txt")
         self.K_right, self.P_right = self.__load_calib("calib.txt")
 
         # CURRENT STATE
-        self.left_current_frame = None
-        self.right_current_frame = None
+        self.left_current_frame: Frame | None = None
+        self.right_current_frame: Frame | None = None
+
+        self.ret_left = False
+        self.ret_right = False
 
         # PREVIOUS STATE
         self.left_previous_frame = None
@@ -53,9 +44,28 @@ class StereoVisualOdometry:  # noqa
         P1 = block * block * 8
         P2 = block * block * 32
         self.disparity = cv2.StereoSGBM_create(minDisparity=0, numDisparities=32, blockSize=block, P1=P1, P2=P2)  # noqa
-        self.fast_features = cv2.FastFeatureDetector_create()
+        self.fast_features = cv2.FastFeatureDetector_create()  # noqa
 
-        self.lk_params = {}
+    @classmethod
+    def visualize_path(cls, estimated_points, x_lim: int = 10, y_lim: int = 10):
+        # Разбиваем estimated_path на X и Z координаты
+        x_coords = [pos[0] for pos in estimated_points]
+        z_coords = [pos[1] for pos in estimated_points]
+
+        # Создаём график
+        plt.figure(figsize=(10, 6))
+        plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Estimated Path")
+
+        # Подписи для графика
+        plt.xlabel("X Position")
+        plt.ylabel("Z Position")
+        plt.title("Estimated Path Visualization")
+        plt.legend()
+        plt.grid(True)
+        plt.axis('equal')  # Чтобы сохранить пропорции
+        plt.xlim(-x_lim, x_lim)
+        plt.ylim(-y_lim, y_lim)
+        plt.show()
 
     @staticmethod
     def __load_calib(filepath: str | PathLike) -> tuple[np.ndarray, np.ndarray]:
@@ -87,16 +97,16 @@ class StereoVisualOdometry:  # noqa
     def read_images(self, gray=False, show=False):
 
         if self.current_frames_is_none and self.previous_frames_is_none:
-            self.left_current_frame: Frame = self.left_capture.read()[1]
-            self.right_current_frame: Frame = self.right_capture.read()[1]
+            self.ret_left, self.left_current_frame = self.left_capture.read()
+            self.ret_right, self.right_current_frame = self.right_capture.read()
 
         else:
             # make current state previous
             self.left_previous_frame = self.left_current_frame
             self.right_previous_frame = self.right_current_frame
             # get new state
-            self.left_current_frame: Frame = self.left_capture.read()[1]
-            self.right_current_frame: Frame = self.right_capture.read()[1]
+            self.ret_left, self.left_current_frame = self.left_capture.read()
+            self.ret_right, self.right_current_frame = self.right_capture.read()
 
         if gray:
             self.left_current_frame = cv2.cvtColor(self.left_current_frame, cv2.COLOR_BGR2GRAY)
@@ -247,7 +257,6 @@ class StereoVisualOdometry:  # noqa
         return q1_l, q1_r, q2_l, q2_r
 
     def calc_3d(self, q1_l, q1_r, q2_l, q2_r):
-
         # triangulate points from i-1'th image
         Q1 = cv2.triangulatePoints(self.P_left, self.P_right, q1_l.T, q1_r.T)
         Q1 = np.transpose(Q1[:3] / Q1[3])
@@ -255,29 +264,27 @@ class StereoVisualOdometry:  # noqa
         # triangulate points from i'th image
         Q2 = cv2.triangulatePoints(self.P_left, self.P_right, q2_l.T, q2_r.T)
         Q2 = np.transpose(Q2[:3] / Q2[3])
-
         return Q1, Q2
 
     def estimate_pose(self, q1, q2, Q1, Q2, max_iter=100):
 
-        early_termination_threshold = 5
+        if q1.shape[0] < 6:
+            print("Недостаточно совпадающих точек для оценки позы.")
+            return np.eye(4)
+
 
         min_error = float('inf')
         early_termination = 0
 
         for _ in range(max_iter):
 
+            # При отсутствии совпадений, не может выбрать из пустой матрицы ПОФИКСИТЬ
             sample_idx = np.random.choice(range(q1.shape[0]), 6)
             sample_q1, sample_q2, sample_Q1, sample_Q2 = q1[sample_idx], q2[sample_idx], Q1[sample_idx], Q2[sample_idx]
-
-            in_guess = np.zeros(6)
-
-            # 1m?
-            opt_res = least_squares(self.reprojection_residuals, in_guess, method="lm", max_nfev=200,
+            opt_res = least_squares(self.reprojection_residuals, np.zeros(6), method="lm", max_nfev=200,
                                     args=(sample_q1, sample_q2, sample_Q1, sample_Q2))
 
-            error = self.reprojection_residuals(opt_res.x, q1, q2, Q1, Q2)
-            error = error.reshape((Q1.shape[0] * 2, 2))
+            error = self.reprojection_residuals(opt_res.x, q1, q2, Q1, Q2).reshape((Q1.shape[0] * 2, 2))
             error = np.sum(np.linalg.norm(error, axis=1))
 
             if error < min_error:
@@ -287,12 +294,11 @@ class StereoVisualOdometry:  # noqa
             else:
                 early_termination += 1
 
-            if early_termination == early_termination_threshold:
+            if early_termination == self.EARLY_TERMINATION_THRESHOLD:
                 break
 
-            r = out_pose[:3]
+            r, t = out_pose[:3], out_pose[3:]  # noqa
             R, _ = cv2.Rodrigues(r)
-            t = out_pose[3:]
             transformation_matrix = self._form_transf(R, t)
 
             return transformation_matrix
@@ -311,8 +317,18 @@ class StereoVisualOdometry:  # noqa
 
         tp1_l, tp1_r, tp2_l, tp2_r = self.calculate_right_qs(tp1_l, tp2_l, old_disp, new_disp)
 
-        Q1, Q2 = self.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+        # Условие, проверяющее отсутствие совпадений
+        try:
+            if tp1_l.size == 0 or tp2_l.size == 0 or tp1_r.size == 0 or tp2_r.size == 0:
+                print("Не удалось обнаружить совпадающие точки. Пропуск текущего шага.")
+                Q1, Q2 = self.calc_3d(*self.previous_matches)
+            else:
+                Q1, Q2 = self.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+        except Exception as e:
+            print(tp1_l, tp1_r, tp2_l, tp2_r, sep="\n\n\n")
+            raise e
 
+        self.previous_matches = [tp1_l, tp1_r, tp2_l, tp2_r]
         transformation_matrix = self.estimate_pose(tp1_l, tp2_l, Q1, Q2)
 
         return transformation_matrix
@@ -320,33 +336,20 @@ class StereoVisualOdometry:  # noqa
 
 if __name__ == "__main__":
     skip_frames = 2
-    vo = StereoVisualOdometry()
+    vo = StereoVisualOdometry(2, 0)
 
     gt_path = []
     estimated_path = []
     camera_pose_list = []
 
-    start_pose = np.ones((3, 4))
     start_translation = np.zeros((3, 1))
     start_rotation = np.identity(3)
     start_pose = np.concatenate((start_rotation, start_translation), axis=1)
 
-    cap1 = cv2.VideoCapture(1, cv2.CAP_DSHOW)
-    cap2 = cv2.VideoCapture(2, cv2.CAP_DSHOW)
-
-    # cap1.set(3, 1280 / 4)
-    # cap1.set(4, 720 / 3)
-    # cap2.set(3, 1280 / 4)
-    # cap2.set(4, 720 / 3)
-
-    cap1.set(3, 1280)
-    cap1.set(4, 720)
-    cap2.set(3, 1280)
-    cap2.set(4, 720)
-
     process_frames = False
-    old_frame_left = None
-    old_frame_right = None
+    vo.read_images(show=True, gray=True)
+    ret1, old_frame_left = vo.ret_left, vo.left_current_frame
+    ret2, old_frame_right = vo.ret_right, vo.right_current_frame
     new_frame_left = None
     new_frame_right = None
 
@@ -354,47 +357,58 @@ if __name__ == "__main__":
     frame_counter: int = 0
 
     while True:
-
-        ret1, new_frame_left = cap1.read()
-        ret2, new_frame_right = cap2.read()
-
-        new_frame_left_gray = cv2.cvtColor(new_frame_left, cv2.COLOR_BGR2GRAY)
-        new_frame_right_gray = cv2.cvtColor(new_frame_right, cv2.COLOR_BGR2GRAY)
+        # Чтение новых кадров
+        vo.read_images(show=True, gray=True)
+        ret1, new_frame_left = vo.ret_left, vo.left_current_frame
+        ret2, new_frame_right = vo.ret_right, vo.right_current_frame
 
         frame_counter += 1
 
         start = time.perf_counter()
 
+        # Если процесс кадров активен и новые кадры успешно считаны
         if process_frames and ret1 and ret2:
-            transf = vo.get_pose(old_frame_left, old_frame_right, new_frame_left_gray, new_frame_right_gray)
+            transf = vo.get_pose(old_frame_left, old_frame_right, new_frame_left, new_frame_right)
             cur_pose = cur_pose @ transf
             hom_array = np.array([[0, 0, 0, 1]])
             hom_camera_pose = np.concatenate((cur_pose, hom_array), axis=0)
             camera_pose_list.append(hom_camera_pose)
             estimated_path.append((cur_pose[0, 3], cur_pose[2, 3]))
 
-        elif process_frames and ret1 is False:  # enhance
-            break
-        old_frame_left = new_frame_left_gray
-        old_frame_right = new_frame_right_gray
+        # Обновление предыдущих кадров текущими
+        old_frame_left = new_frame_left
+        old_frame_right = new_frame_right
         process_frames = True
         end = time.perf_counter()
         total_time = end - start
         fps = 1 / total_time
 
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
+        cv2.putText(new_frame_left, str(np.round(cur_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2,
+                    (255, 0, 0), 1)
 
         cv2.imshow("img", new_frame_left)
         cv2.imshow("img2", new_frame_right)
@@ -402,7 +416,7 @@ if __name__ == "__main__":
         cv2.waitKey(1)
 
         print(frame_counter)
-        if frame_counter == 60:
+        if frame_counter == 50:
             break
 
-    visualize_path(estimated_path)
+    StereoVisualOdometry.visualize_path(estimated_path, 100)
