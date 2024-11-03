@@ -19,3 +19,4 @@ python-osc==1.8.3
 pytz==2024.1
 six==1.16.0
 tzdata==2024.1
+scipy~=1.14.1

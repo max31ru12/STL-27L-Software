@@ -4,11 +4,30 @@ from typing import Any
 
 import cv2
 import numpy as np
-
+import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 
 
 Frame = cv2.Mat | np.ndarray[Any, np.dtype[np.generic]] | np.ndarray
+
+
+def visualize_path(estimated_path):
+    # Разбиваем estimated_path на X и Z координаты
+    x_coords = [pos[0] for pos in estimated_path]
+    z_coords = [pos[1] for pos in estimated_path]
+
+    # Создаём график
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Estimated Path")
+
+    # Подписи для графика
+    plt.xlabel("X Position")
+    plt.ylabel("Z Position")
+    plt.title("Estimated Path Visualization")
+    plt.legend()
+    plt.grid(True)
+    plt.axis('equal')  # Чтобы сохранить пропорции
+    plt.show()
 
 
 class StereoVisualOdometry:  # noqa
@@ -135,12 +154,12 @@ class StereoVisualOdometry:  # noqa
         # Project 3D points from i'th image to i-1'th image
         q1_pred = Q2.dot(f_projection.T)
         # Un-homogenize
-        q1_pred = q1_pred[:, :2].T / q1_pred[:, 2]
+        q1_pred = q1_pred[:, :2].T / np.where(q1_pred[:, 2] == 0, 1e-10, q1_pred[:, 2])
 
         # Project 3D points from i-1'th image to i'th image
         q2_pred = Q1.dot(b_projection.T)
         # Un-homogenize
-        q2_pred = q2_pred[:, :2].T / q2_pred[:, 2]
+        q2_pred = q2_pred[:, :2].T / np.where(q2_pred[:, 2] == 0, 1e-10, q2_pred[:, 2])
 
         # Calculate the residuals
         residuals = np.vstack([q1_pred - q1.T, q2_pred - q2.T]).flatten()
@@ -301,7 +320,7 @@ class StereoVisualOdometry:  # noqa
 
 if __name__ == "__main__":
     skip_frames = 2
-    vo = StereoVisualOdometry(0, 0)
+    vo = StereoVisualOdometry()
 
     gt_path = []
     estimated_path = []
@@ -312,8 +331,13 @@ if __name__ == "__main__":
     start_rotation = np.identity(3)
     start_pose = np.concatenate((start_rotation, start_translation), axis=1)
 
-    cap1 = cv2.VideoCapture(0)
-    cap2 = cv2.VideoCapture(0)
+    cap1 = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    cap2 = cv2.VideoCapture(2, cv2.CAP_DSHOW)
+
+    # cap1.set(3, 1280 / 4)
+    # cap1.set(4, 720 / 3)
+    # cap2.set(3, 1280 / 4)
+    # cap2.set(4, 720 / 3)
 
     cap1.set(3, 1280)
     cap1.set(4, 720)
@@ -329,7 +353,7 @@ if __name__ == "__main__":
     cur_pose = start_pose
     frame_counter: int = 0
 
-    while cap1.isOpened() and cap2.isOpened():
+    while True:
 
         ret1, new_frame_left = cap1.read()
         ret2, new_frame_right = cap2.read()
@@ -342,11 +366,8 @@ if __name__ == "__main__":
         start = time.perf_counter()
 
         if process_frames and ret1 and ret2:
-
             transf = vo.get_pose(old_frame_left, old_frame_right, new_frame_left_gray, new_frame_right_gray)
-
             cur_pose = cur_pose @ transf
-
             hom_array = np.array([[0, 0, 0, 1]])
             hom_camera_pose = np.concatenate((cur_pose, hom_array), axis=0)
             camera_pose_list.append(hom_camera_pose)
@@ -354,19 +375,14 @@ if __name__ == "__main__":
 
         elif process_frames and ret1 is False:  # enhance
             break
-
         old_frame_left = new_frame_left_gray
         old_frame_right = new_frame_right_gray
-
         process_frames = True
-
         end = time.perf_counter()
-
         total_time = end - start
         fps = 1 / total_time
 
         cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-
         cv2.putText(new_frame_left, str(np.round(cur_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
@@ -376,7 +392,17 @@ if __name__ == "__main__":
         cv2.putText(new_frame_left, str(np.round(cur_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
-
         cv2.putText(new_frame_left, str(np.round(cur_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
         cv2.putText(new_frame_left, str(np.round(cur_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 1)
+
+        cv2.imshow("img", new_frame_left)
+        cv2.imshow("img2", new_frame_right)
+
+        cv2.waitKey(1)
+
+        print(frame_counter)
+        if frame_counter == 60:
+            break
+
+    visualize_path(estimated_path)
