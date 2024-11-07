@@ -1,12 +1,12 @@
 import time
 from os import PathLike
+from pathlib import Path
 from typing import Any, ClassVar
 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
-
 
 Frame = cv2.Mat | np.ndarray[Any, np.dtype[np.generic]] | np.ndarray
 
@@ -46,6 +46,14 @@ class StereoVisualOdometry:  # noqa
         self.disparity = cv2.StereoSGBM_create(minDisparity=0, numDisparities=32, blockSize=block, P1=P1, P2=P2)  # noqa
         self.fast_features = cv2.FastFeatureDetector_create()  # noqa
 
+    @property
+    def current_frames_is_none(self) -> bool:
+        return self.left_current_frame is None and self.right_current_frame is None
+
+    @property
+    def previous_frames_is_none(self) -> bool:
+        return self.left_previous_frame is None and self.right_previous_frame is None
+
     @classmethod
     def visualize_path(cls, estimated_points, x_lim: int = 10, y_lim: int = 10):
         # Разбиваем estimated_path на X и Z координаты
@@ -70,15 +78,7 @@ class StereoVisualOdometry:  # noqa
     @staticmethod
     def __load_calib(filepath: str | PathLike) -> tuple[np.ndarray, np.ndarray]:
         """
-        Loads the calibration of the camera
-        Parameters
-        ----------
-        filepath (str): The file path to the camera file
-
-        Returns
-        -------
-        K (ndarray): Intrinsic parameters
-        P (ndarray): Projection matrix
+        loading camera calibration parameters
         """
         with open(filepath, 'r') as f:
             params = np.fromstring(f.readline(), dtype=np.float64, sep=' ')
@@ -86,13 +86,61 @@ class StereoVisualOdometry:  # noqa
             K = P[0:3, 0:3]
         return K, P
 
-    @property
-    def current_frames_is_none(self) -> bool:
-        return self.left_current_frame is None and self.right_current_frame
+    @staticmethod
+    def _form_transf(R, t):
+        """
+        Makes a transformation matrix from the given rotation matrix and translation vector
+        """
+        T = np.eye(4, dtype=np.float64)
+        T[:3, :3] = R
+        T[:3, 3] = t
+        return T
 
-    @property
-    def previous_frames_is_none(self) -> bool:
-        return self.left_previous_frame is None and self.right_previous_frame
+    @staticmethod
+    def calculate_right_qs(
+            keypoints_img1,
+            keypoints_img2,
+            disparity1,
+            disparity2,
+            min_disparity: float = 0.0,
+            max_disparity: float = 100.0
+    ):
+        """
+        Возвращает:
+        keypoints_img1_left: Отфильтрованные координаты ключевых точек на первом изображении.
+        keypoints_img1_right: Соответствующие координаты ключевых точек на правом изображении (вычисленные путем сдвига на диспаритет).
+        keypoints_img2_left: Отфильтрованные координаты ключевых точек на втором изображении.
+        keypoints_img2_right: Соответствующие координаты ключевых точек на правом изображении (вычисленные путем сдвига на диспаритет).
+        """
+
+        # min_disp и max_disp - нужны для фильтрации шума или неправильных значений
+        # Вычисляет диспаритет для заданных ключевых точек
+        def get_idxs(q, disp):
+            q_idx = q.astype(int)
+            disp = disp.T[q_idx[:, 0], q_idx[:, 1]]
+            return disp, np.where(np.logical_and(min_disparity < disp, disp < max_disparity), True, False)
+
+        # Получаем диспаритеты и маски для фиотрации
+        disparity_img1, mask1 = get_idxs(keypoints_img1, disparity1)
+        disparity_img2, mask2 = get_idxs(keypoints_img2, disparity2)
+
+        in_bounds = np.logical_and(mask1, mask2)
+
+        # Фильтрует ключевые точки и значения диспаритета, оставляя только валидные точки
+        keypoints_img1_left = keypoints_img1[in_bounds]
+        keypoints_img2_left = keypoints_img2[in_bounds]
+        disparity_img1 = disparity_img1[in_bounds]
+        disparity_img2 = disparity_img2[in_bounds]
+
+        # Создает копии фильтрованных ключевых точек, которые будут модифицированы для получения координат правых точек
+        keypoints_img1_right = np.copy(keypoints_img1_left)
+        keypoints_img2_right = np.copy(keypoints_img2_left)
+
+        # Сдвигает координаты x на величину диспаритета, чтобы получить положение точки на правом изображении
+        keypoints_img1_right[:, 0] -= disparity_img1
+        keypoints_img2_right[:, 0] -= disparity_img2
+
+        return keypoints_img1_left, keypoints_img1_right, keypoints_img2_left, keypoints_img2_right
 
     def read_images(self, gray=False, show=False):
 
@@ -117,31 +165,9 @@ class StereoVisualOdometry:  # noqa
             cv2.imshow("Right", self.right_current_frame)
             cv2.waitKey(200)
 
-    @staticmethod
-    def _form_transf(R, t):
-        """
-        Makes a transformation matrix from the given rotation matrix and translation vector
-        """
-        T = np.eye(4, dtype=np.float64)
-        T[:3, :3] = R
-        T[:3, 3] = t
-        return T
-
     def reprojection_residuals(self, dof, q1, q2, Q1, Q2):
         """
         Calculate the residuals
-
-        Parameters
-        ----------
-        dof (ndarray): Transformation between the two frames. First 3 elements are the rotation vector and the last 3 is the translation. Shape (6)
-        q1 (ndarray): Feature points in i-1'th image. Shape (n_points, 2)
-        q2 (ndarray): Feature points in i'th image. Shape (n_points, 2)
-        Q1 (ndarray): 3D points seen from the i-1'th image. Shape (n_points, 3)
-        Q2 (ndarray): 3D points seen from the i'th image. Shape (n_points, 3)
-
-        Returns
-        -------
-        residuals (ndarray): The residuals. In shape (2 * n_points * 2)
         """
         # Get the rotation vector
         r = dof[:3]
@@ -177,92 +203,79 @@ class StereoVisualOdometry:  # noqa
 
     def get_tiled_keypoints(self, img, tile_h, tile_w):
         """
-        Splits the image into tiles and detects the 10 best keypoints in each tile
-
-        Parameters
-        ----------
-        img (ndarray): The image to find keypoints in. Shape (height, width)
-        tile_h (int): The tile height
-        tile_w (int): The tile width
-
-        Returns
-        -------
-        kp_list (ndarray): A 1-D list of all keypoints. Shape (n_keypoints)
+        Возвращает ключевые точки
         """
+
         def get_kps(x, y):
-            # Get the image tile
+            # Выбираем плитку
             impatch = img[y:y + tile_h, x:x + tile_w]
-
-            # Detect keypoints
+            # Детектируем ключевые точки
             keypoints = self.fast_features.detect(impatch)
-
             # Correct the coordinate for the point
             for pt in keypoints:
                 pt.pt = (pt.pt[0] + x, pt.pt[1] + y)
 
             # Get the 10 best keypoints
             if len(keypoints) > 10:
-                keypoints = sorted(keypoints, key=lambda x: -x.response)
+                keypoints = sorted(keypoints, key=lambda keypoint: -keypoint.response)
                 return keypoints[:10]
             return keypoints
-        # Get the image height and width
+
+        # Высота и ширина изображения
         h, w, *_ = img.shape
-
-        # Get the keypoints for each of the tiles
+        # Получаем ключевые точки для каждой из плиток
         kp_list = [get_kps(x, y) for y in range(0, h, tile_h) for x in range(0, w, tile_w)]
-
-        # Flatten the keypoint list
+        # Преобразовать список ключевых точек в одномерный массив
         kp_list_flatten = np.concatenate(kp_list)
         return kp_list_flatten
 
-    def track_keypoints(self, img1, img2, kp1, max_error: int = 4):
+    def track_keypoints(self, img1, img2, keypoints1, max_error: int = 4):
+        """
+        Принимает старое и новое изображение с одной камеры
+        """
 
-        trackpoints1 = np.expand_dims(cv2.KeyPoint_convert(kp1), axis=1)
+        # переводим в массив координат
+        trackpoints1 = np.expand_dims(cv2.KeyPoint_convert(keypoints1), axis=1)
+        # Отслеживаем ключевые точки с 1-го изображения на втором изображении
         trackpoints2, st, err = cv2.calcOpticalFlowPyrLK(img1, img2, trackpoints1, None, **self.lk_params)
 
-        trackable = st.astype(bool)
-
+        # ФИЛЬТРЫ ДЛЯ ТОЧЕК
+        trackable = st.astype(bool)  # массив успеха/неудачи для каждой точки
         under_thresh = np.where(err[trackable] < max_error, True, False)
 
+        # Фильтруем точки
         trackpoints1 = trackpoints1[trackable][under_thresh]
         trackpoints2 = np.around(trackpoints2[trackable][under_thresh])
 
         h, w = img1.shape
+        # Проверяет, находятся ли координаты trackpoints2 в пределах изображения,
+        # сохраняя True для точек, которые находятся внутри границ.
         in_bounds = np.where(np.logical_and(trackpoints2[:, 1] < h, trackpoints2[:, 0] < w), True, False)
 
+        # Еще одна фильтрация
         trackpoints1 = trackpoints1[in_bounds]
         trackpoints2 = trackpoints2[in_bounds]
 
         return trackpoints1, trackpoints2
 
-    def calculate_right_qs(self, q1, q2, disp1, disp2, min_disp=0.0, max_disp=100.0):
+    def calc_3d(
+            self,
+            keypoints_img1_left,
+            keypoints_img1_right,
+            keypoints_img2_left,
+            keypoints_img2_right
+    ):
+        """
+        Возвращает координаты 3D-точек для текущей стереопары и предыдущей стереопары
+        """
 
-        def get_idxs(q, disp):
-            q_idx = q.astype(int)
-            disp = disp.T[q_idx[:, 0], q_idx[:, 1]]
-            return disp, np.where(np.logical_and(min_disp < disp, disp < max_disp), True, False)
+        # триангуляция точек с предыщих изображений triangulate points from i-1'th image
+        Q1 = cv2.triangulatePoints(self.P_left, self.P_right, keypoints_img1_left.T, keypoints_img1_right.T)
 
-        disp1, mask1 = get_idxs(q1, disp1)
-        disp2, mask2 = get_idxs(q2, disp2)
-
-        in_bounds = np.logical_and(mask1, mask2)
-
-        q1_l, q2_l, disp1, disp2 = q1[in_bounds], q2[in_bounds], disp1[in_bounds], disp2[in_bounds]
-
-        q1_r, q2_r = np.copy(q1_l), np.copy(q2_l)
-
-        q1_r[:, 0] -= disp1
-        q2_r[:, 0] -= disp2
-
-        return q1_l, q1_r, q2_l, q2_r
-
-    def calc_3d(self, q1_l, q1_r, q2_l, q2_r):
-        # triangulate points from i-1'th image
-        Q1 = cv2.triangulatePoints(self.P_left, self.P_right, q1_l.T, q1_r.T)
         Q1 = np.transpose(Q1[:3] / Q1[3])
 
-        # triangulate points from i'th image
-        Q2 = cv2.triangulatePoints(self.P_left, self.P_right, q2_l.T, q2_r.T)
+        # триангуляция точек с текущих изображений triangulate points from i'th image
+        Q2 = cv2.triangulatePoints(self.P_left, self.P_right, keypoints_img2_left.T, keypoints_img2_right.T)
         Q2 = np.transpose(Q2[:3] / Q2[3])
         return Q1, Q2
 
@@ -271,7 +284,6 @@ class StereoVisualOdometry:  # noqa
         if q1.shape[0] < 6:
             print("Недостаточно совпадающих точек для оценки позы.")
             return np.eye(4)
-
 
         min_error = float('inf')
         early_termination = 0
@@ -299,7 +311,7 @@ class StereoVisualOdometry:  # noqa
 
             r, t = out_pose[:3], out_pose[3:]  # noqa
             R, _ = cv2.Rodrigues(r)
-            transformation_matrix = self._form_transf(R, t)
+            transformation_matrix = self._form_transf(R, t)  # noqa
 
             return transformation_matrix
 
@@ -308,9 +320,10 @@ class StereoVisualOdometry:  # noqa
         img1_l = old_imgL
         img2_l = new_imgL
 
-        kp1_l = self.get_tiled_keypoints(img1_l, 10, 20)
+        # Получаем ключевые точки
+        left_keypoints1 = self.get_tiled_keypoints(img1_l, 10, 20)
 
-        tp1_l, tp2_l = self.track_keypoints(img1_l, img2_l, kp1_l)
+        tp1_l, tp2_l = self.track_keypoints(img1_l, img2_l, left_keypoints1)
 
         old_disp = np.divide(self.disparity.compute(old_imgL, old_imgR).astype(np.float32), 16)
         new_disp = np.divide(self.disparity.compute(new_imgL, new_imgR).astype(np.float32), 16)
@@ -319,41 +332,45 @@ class StereoVisualOdometry:  # noqa
 
         # Условие, проверяющее отсутствие совпадений
         try:
-            if tp1_l.size == 0 or tp2_l.size == 0 or tp1_r.size == 0 or tp2_r.size == 0:
-                print("Не удалось обнаружить совпадающие точки. Пропуск текущего шага.")
-                Q1, Q2 = self.calc_3d(*self.previous_matches)
-            else:
-                Q1, Q2 = self.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+            Q1, Q2 = self.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+            pass
         except Exception as e:
-            print(tp1_l, tp1_r, tp2_l, tp2_r, sep="\n\n\n")
-            raise e
+            print(e)
+        # try:
+        #     if tp1_l.size == 0 or tp2_l.size == 0 or tp1_r.size == 0 or tp2_r.size == 0:
+        #         print("Не удалось обнаружить совпадающие точки. Пропуск текущего шага.")
+        #         Q1, Q2 = self.calc_3d(*self.previous_matches)
+        #     else:
+        #         Q1, Q2 = self.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+        # except Exception as e:
+        #     print(tp1_l, tp1_r, tp2_l, tp2_r, sep="\n\n\n")
+        #     # raise e
 
         self.previous_matches = [tp1_l, tp1_r, tp2_l, tp2_r]
-        transformation_matrix = self.estimate_pose(tp1_l, tp2_l, Q1, Q2)
+        transformation_matrix = self.estimate_pose(tp1_l, tp2_l, Q1, Q2)  # noqa
 
         return transformation_matrix
 
 
 if __name__ == "__main__":
-    skip_frames = 2
-    vo = StereoVisualOdometry(2, 0)
+    vo = StereoVisualOdometry(0, 2)
 
-    gt_path = []
     estimated_path = []
     camera_pose_list = []
 
     start_translation = np.zeros((3, 1))
     start_rotation = np.identity(3)
-    start_pose = np.concatenate((start_rotation, start_translation), axis=1)
+    current_pose = np.concatenate((start_rotation, start_translation), axis=1)
 
     process_frames = False
+
     vo.read_images(show=True, gray=True)
     ret1, old_frame_left = vo.ret_left, vo.left_current_frame
     ret2, old_frame_right = vo.ret_right, vo.right_current_frame
+
     new_frame_left = None
     new_frame_right = None
 
-    current_pose = start_pose
     frame_counter: int = 0
 
     while True:
@@ -383,33 +400,6 @@ if __name__ == "__main__":
         total_time = end - start
         fps = 1 / total_time
 
-        cv2.putText(new_frame_left, str(np.round(current_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[0, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[0, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[0, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[1, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[1, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[1, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[2, 0], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[2, 1], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[2, 2], 2)), (260, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[0, 3], 2)), (540, 50), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[1, 3], 2)), (540, 90), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-        cv2.putText(new_frame_left, str(np.round(current_pose[2, 3], 2)), (540, 130), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                    (255, 0, 0), 1)
-
         cv2.imshow("img", new_frame_left)
         cv2.imshow("img2", new_frame_right)
 
@@ -418,5 +408,13 @@ if __name__ == "__main__":
         print(frame_counter)
         if frame_counter == 50:
             break
+
+    file = Path("./estimated_path.txt")
+    text = ""
+    for point in estimated_path:
+        text.join(str(point).strip("()").replace(",", "") + "\n")
+
+    print(text)
+    file.write_text(text)
 
     StereoVisualOdometry.visualize_path(estimated_path, 100)

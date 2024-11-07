@@ -40,17 +40,6 @@ class VisualOdometry:
 
     @staticmethod
     def _load_calib(filepath):
-        """
-        Loads the calibration of the camera
-        Parameters
-        ----------
-        filepath (str): The file path to the camera file
-
-        Returns
-        -------
-        K (ndarray): Intrinsic parameters
-        P (ndarray): Projection matrix
-        """
         with open(filepath, 'r') as f:
             params = np.fromstring(f.readline(), dtype=np.float64, sep=' ')
             P = np.reshape(params, (3, 4))
