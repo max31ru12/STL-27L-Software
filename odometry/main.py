@@ -5,57 +5,11 @@ import cv2
 
 from loguru import logger
 
-# DEBUG TOOLS
+from odometry.odometry_utils import keypoints_is_empty, print_keypoints, draw_with_keypoints, draw_keypoints_matches, \
+    triangulate_points, transform_calibration_and_projection_matrices
 
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
 
-
-def draw_with_keypoints(left_frame, right_frame, keypoints_left, keypoints_right) -> None:  # noqa
-    left_with_keypoints = cv2.drawKeypoints(left_frame, keypoints_left, None, color=(0, 255, 0), flags=0)
-    right_with_keypoints = cv2.drawKeypoints(right_frame, keypoints_right, None, color=(0, 255, 0), flags=0)
-
-    # Отображение кадров с ключевыми точками
-    cv2.imshow("Left Camera with Keypoints", left_with_keypoints)
-    cv2.imshow("Right Camera with Keypoints", right_with_keypoints)
-
-
-def print_keypoints(keypoints, quantity: int | None = None):
-    if quantity is None or quantity > len(matches):
-        quantity = len(keypoints)
-    for i, kp in enumerate(keypoints[:quantity]):  # Выводим первые 5 ключевых точек
-        print(f"Точка {i + 1}: x={kp.pt[0]:.2f}, y={kp.pt[1]:.2f}, угол={kp.angle:.2f}, масштаб={kp.size:.2f}")
-
-
-def keypoints_is_empty(KP_left, KP_right, DES_left, DES_right) -> bool:
-    """
-    KP_left - keypoints_left
-    KP_right - keypoints_right
-    DES_left - descriptors_left
-    DES_right - descriptors_right
-    """
-    return not KP_left or not KP_right or DES_left is None or DES_right is None
-
-
-def draw_keypoints_matches(left_frame, right_frame, KP_left, KP_right, matches, quantity: int | None = None):  # noqa
-    """
-    KP_left - keypoints_left
-    KP_right - keypoints_right
-    """
-    if quantity is None or quantity > len(matches):
-        quantity = len(matches)
-    matched_frame = cv2.drawMatches(  # noqa
-        left_frame,
-        keypoints_left,
-        right_frame,
-        keypoints_right,
-        matches[:quantity],
-        None,
-        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-    )
-    cv2.imshow("Matches", matched_frame)
-
-
-### MAIN CODE  # noqa
 
 # Калибровочные параметры камеры: (K - матрица калибровкиб P - )
 # Формула проецирования точки x2d = Px3d
@@ -110,6 +64,11 @@ while True:
 
     # Поиск соответствий
     matches = BF_MATCHER.match(descriptors_left, descriptors_right)
+
+    for match in matches[:5]:  # первые 5 соответствий
+        print(
+            f"Index in Left Image: {match.queryIdx}, Index in Right Image: {match.trainIdx}, Distance: {match.distance}")
+
     # Сортировка по расстоянию (чем меньше расстояние, тем лучше соответствие)
     sorted_matches = sorted(matches, key=lambda x: x.distance)
 
@@ -122,7 +81,15 @@ while True:
     # Для отладки отрисовка соответствий ключевых точек
     # draw_keypoints_matches(left_frame, right_frame, keypoints_left, keypoints_right, sorted_matches)
 
-    print(counter)
+    P_left, P_right, = transform_calibration_and_projection_matrices(CAMERA_CALIBRATION_PARAMETERS)
+
+    # Вызов функции триангуляции после поиска соответствий
+    points_3D = triangulate_points(P_left, P_right, keypoints_left, keypoints_right, sorted_matches)
+
+    print(points_3D)
+
+
+    logger.info(f"Counter: {counter}")
     counter += 1
 
     # Ожидаем нажатия клавиши 'q' для выхода

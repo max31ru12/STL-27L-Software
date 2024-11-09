@@ -22,11 +22,13 @@ class StereoVisualOdometry:  # noqa
     def __init__(self, left_camera_number: int = 1, right_camera_number: int = 2):
         # Cameras
         self.previous_matches = [np.array([0.0, 0.0, 0.0]) for _ in range(4)]
-        self.left_capture = cv2.VideoCapture(left_camera_number)
-        self.right_capture = cv2.VideoCapture(right_camera_number)
+        self.left_capture = cv2.VideoCapture(right_camera_number)
+        self.right_capture = cv2.VideoCapture(left_camera_number)
 
         self.K_left, self.P_left = self.__load_calib("calib.txt")
         self.K_right, self.P_right = self.__load_calib("calib.txt")
+
+        print(self.P_left)
 
         # CURRENT STATE
         self.left_current_frame: Frame | None = None
@@ -368,31 +370,34 @@ if __name__ == "__main__":
     ret1, old_frame_left = vo.ret_left, vo.left_current_frame
     ret2, old_frame_right = vo.ret_right, vo.right_current_frame
 
-    new_frame_left = None
-    new_frame_right = None
-
     frame_counter: int = 0
 
     while True:
-        # Чтение новых кадров
+
         vo.read_images(show=True, gray=True)
         ret1, new_frame_left = vo.ret_left, vo.left_current_frame
         ret2, new_frame_right = vo.ret_right, vo.right_current_frame
 
         frame_counter += 1
-
         start = time.perf_counter()
 
-        # Если процесс кадров активен и новые кадры успешно считаны
         if process_frames and ret1 and ret2:
-            transformation_matrix = vo.get_pose(old_frame_left, old_frame_right, new_frame_left, new_frame_right)
-            current_pose = current_pose @ transformation_matrix
-            hom_array = np.array([[0, 0, 0, 1]])
-            hom_camera_pose = np.concatenate((current_pose, hom_array), axis=0)
-            camera_pose_list.append(hom_camera_pose)
-            estimated_path.append((current_pose[0, 3], current_pose[2, 3]))
+            left_keypoints1 = vo.get_tiled_keypoints(old_frame_left, 10, 20)
 
-        # Обновление предыдущих кадров текущими
+            tp1_l, tp2_l = vo.track_keypoints(old_frame_left, new_frame_left, left_keypoints1)
+
+            old_disp = np.divide(vo.disparity.compute(old_frame_left, old_frame_right).astype(np.float32), 16)
+            new_disp = np.divide(vo.disparity.compute(new_frame_left, new_frame_right).astype(np.float32), 16)
+
+            tp1_l, tp1_r, tp2_l, tp2_r = vo.calculate_right_qs(tp1_l, tp2_l, old_disp, new_disp)
+
+            Q1, Q2 = vo.calc_3d(tp1_l, tp1_r, tp2_l, tp2_r)
+
+            transformation_matrix = vo.estimate_pose(tp1_l, tp2_l, Q1, Q2)
+            current_pose = current_pose @ transformation_matrix
+
+        estimated_path.append((current_pose[0, 3], current_pose[2, 3]))
+
         old_frame_left = new_frame_left
         old_frame_right = new_frame_right
         process_frames = True
@@ -400,21 +405,11 @@ if __name__ == "__main__":
         total_time = end - start
         fps = 1 / total_time
 
-        cv2.imshow("img", new_frame_left)
-        cv2.imshow("img2", new_frame_right)
+        print(frame_counter)
 
         cv2.waitKey(1)
 
-        print(frame_counter)
         if frame_counter == 50:
             break
-
-    file = Path("./estimated_path.txt")
-    text = ""
-    for point in estimated_path:
-        text.join(str(point).strip("()").replace(",", "") + "\n")
-
-    print(text)
-    file.write_text(text)
 
     StereoVisualOdometry.visualize_path(estimated_path, 100)
