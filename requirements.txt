@@ -20,3 +20,4 @@ pytz==2024.1
 six==1.16.0
 tzdata==2024.1
 scipy~=1.14.1
+loguru~=0.7.2
