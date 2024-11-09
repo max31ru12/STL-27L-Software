@@ -1,63 +1,54 @@
-import time
-
-import cv2
 import numpy as np
-import matplotlib.pyplot as plt
+import cv2
 
-from visual_odometry import VisualOdometry
+from pprint import pprint
 
-plt.ion()  # Turn on interactive mode
-fig, ax = plt.subplots()
-line, = ax.plot([], [], marker='o')
-ax.set_xlim(-50, 50)  # Adjust based on expected path range
-ax.set_ylim(-50, 50)
-ax.set_xlabel('X axis')
-ax.set_ylabel('Z axis')
-ax.set_title('Real-Time Estimated Path')
+# Калибровочные параметры камеры: (K - матрица калибровкиб P - )
+# Формула проецирования точки x2d = Px3d
+CAMERA_CALIBRATION_PARAMETERS = {
+    "K_LEFT": np.array([[653.26, 0., 304.81],
+                        [0., 653.79, 229.71],
+                        [0., 0., 1.]]),
+    "P_LEFT": np.array([[653.26, 0., 304.81],
+                        [0., 653.79, 229.71],
+                        [0., 0., 1.]]),
+    "K_RIGHT": np.array([[653.26, 0., 304.81, 0.],
+                        [0., 653.79, 229.71, 0.],
+                        [0., 0., 1., 0.]]),
+    "P_RIGHT": np.array([[6.5326e+02, 0.0000e+00, 3.0481e+02, -2.5200e-01],
+                        [0.0000e+00, 6.5379e+02, 2.2971e+02, 0.0000e+00],
+                        [0.0000e+00, 0.0000e+00, 1.0000e+00, 0.0000e+00]]),
+    "FOCUS_DISTANCE": 3.67,  # в мм (миллиметр),
+    "EXTENSION": 3,  # в МегаПикселях
+    "PIXEL_REAL_DIMENSIONS": 1.4,  # в мкм (микрометр) УТОЧНИТЬ
+}
 
-odometry = VisualOdometry(0, 0.75)
-current_pose = np.eye(4)
-estimated_path = []
+KEY_POINTS_QUANTITY = 500
 
-i = 0
+# Инициализация ORB детектора
+ORB_DETECTOR = cv2.ORB_create(nfeatures=KEY_POINTS_QUANTITY)
+
+
+
+
+
+LEFT_CAMERA = cv2.VideoCapture(0)
+RIGHT_CAMERA = cv2.VideoCapture(2)
+
+if not LEFT_CAMERA.isOpened() or not RIGHT_CAMERA.isOpened():
+    print("Ошибка: не удалось открыть одну из камер")
+
 while True:
+    ret_left, left_frame = LEFT_CAMERA.read()
+    ret_right, right_frame = RIGHT_CAMERA.read()
 
-    try:
+    if not ret_left or not ret_right:
+        print("Ошибка: не удалось захватить кадры с обеих камер")
+        continue
 
-        time.sleep(0.25)
+    cv2.imshow("Left Camera", left_frame)
+    cv2.imshow("Right Camera", right_frame)
 
-        odometry.read_image(gray=True, show=False)
-        prev_image_matches, cur_image_matches = odometry.get_matches(show=False)
-
-        if prev_image_matches is None and cur_image_matches is None:
-            continue
-
-        transf = odometry.get_pose(prev_image_matches, cur_image_matches)
-
-        if np.isnan(transf).any() or np.isinf(transf).any():
-            print("Ошибка: матрица трансформации содержит NaN или бесконечные значения")
-            continue
-        # матрица положения камеры, представляющая её положение и ориентацию в пространстве
-        current_pose = np.matmul(current_pose, np.linalg.inv(transf))
-        estimated_path.append((current_pose[0, 3], current_pose[2, 3]))
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-        x, y = zip(*estimated_path)
-
-        print(max(x, key=abs), max(y, key=abs))
-
-        line.set_data(x, y)
-        ax.relim()
-        ax.autoscale_view(True, True, True)
-        plt.draw()
-        plt.pause(0.01)
-    except:
-        pass
-
-x, y = zip(estimated_path)
-
-
-
-plt.plot(x, y, marker='-')
+    # Ожидаем нажатия клавиши 'q' для выхода
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
