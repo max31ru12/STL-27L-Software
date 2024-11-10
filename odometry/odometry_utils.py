@@ -1,4 +1,5 @@
 import sys
+from typing import Any
 
 import numpy as np
 import cv2
@@ -79,6 +80,20 @@ def print_matches(matches: list[cv2.DMatch], quantity: int | None = None):
         )
 
 
+def transform_calibration_and_projection_matrices(camera_calibration_parameters: dict[str, Any]):
+    # Пример для проекционной матрицы левой камеры (если она имеет размер 3x3, расширьте её до 3x4)
+    P_left = camera_calibration_parameters["P_LEFT"]
+    if P_left.shape == (3, 3):
+        P_left = np.hstack((P_left, np.zeros((3, 1))))
+
+    # Пример для проекционной матрицы правой камеры (если она имеет размер 3x3, расширьте её до 3x4)
+    P_right = camera_calibration_parameters["P_RIGHT"]
+    if P_right.shape == (3, 3):
+        P_right = np.hstack((P_right, np.zeros((3, 1))))
+
+    return P_left, P_right
+
+
 def triangulate_points(
         P_left: np.ndarray,
         P_right: np.ndarray,
@@ -100,6 +115,7 @@ def triangulate_points(
     - np.ndarray - Массив 3D-координат точек (размер Nx3), где N — количество точек.
     """
     try:
+
         # Извлечение координат ключевых точек только для совпадений
         pts_left = np.array([keypoints_left[match.queryIdx].pt for match in matches], dtype=np.float32)
         pts_right = np.array([keypoints_right[match.trainIdx].pt for match in matches], dtype=np.float32)
@@ -111,7 +127,7 @@ def triangulate_points(
         points_3D = points_4D_homogeneous[:3] / points_4D_homogeneous[3]
         points_3D = points_3D.T  # Транспонируем для получения формата Nx3
 
-        logger.info("Успешно выполнена триангуляция.")
+        # logger.info("Успешно выполнена триангуляция.")
         return points_3D
 
     except cv2.error as e:
@@ -127,14 +143,70 @@ def triangulate_points(
         return np.array([])
 
 
-if __name__ == "__main__":
-    import numpy as np
-    import cv2
+def get_matched_3D_points(matches, previous_keypoints_3D, current_keypoints_3D):
+    """
+    Получает только те пары 3D-точек, которые имеют соответствия между предыдущим и текущим кадрами.
 
-    photo = np.zeros((300, 300, 3), dtype="uint8")
+    Параметры:
+    - matches: list[cv2.DMatch] - Список совпадений между кадрами.
+    - previous_keypoints_3D: np.ndarray - Массив 3D-точек из предыдущего кадра (Nx3).
+    - current_keypoints_3D: np.ndarray - Массив 3D-точек из текущего кадра (Mx3).
 
-    photo[:] = 255, 0, 0
+    Возвращает:
+    - matched_prev_points: np.ndarray - Отфильтрованные 3D-точки из предыдущего кадра.
+    - matched_curr_points: np.ndarray - Отфильтрованные 3D-точки из текущего кадра.
+    """
+    matched_prev_points = []
+    matched_curr_points = []
 
-    cv2.imshow("Photo", photo)
-    cv2.waitKey(0)
+    for match in matches:
+        idx_prev = match.queryIdx  # Индекс точки в предыдущем кадре
+        idx_curr = match.trainIdx  # Индекс точки в текущем кадре
+
+        # Добавляем соответствующие точки
+        matched_prev_points.append(previous_keypoints_3D[idx_prev])
+        matched_curr_points.append(current_keypoints_3D[idx_curr])
+
+    return np.array(matched_prev_points), np.array(matched_curr_points)
+
+
+def filter_matched_points(previous_points_3D, current_points_3D):
+    """
+    Фильтрует 3D-точки, чтобы количество точек в двух кадрах совпадало.
+    """
+    min_len = min(len(previous_points_3D), len(current_points_3D))
+    return previous_points_3D[:min_len], current_points_3D[:min_len]
+
+
+def estimate_motion(previous_points_3D: np.ndarray, current_points_3D: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Определяет изменение позы камеры между двумя наборами 3D-точек.
+    """
+    # Фильтрация точек для совпадения по размеру
+    previous_points_3D, current_points_3D = filter_matched_points(previous_points_3D, current_points_3D)
+
+    if previous_points_3D.shape[0] < 4 or current_points_3D.shape[0] < 4:
+        logger.warning("Недостаточно 3D-точек для оценки движения.")
+        return np.eye(3), np.zeros((3, 1))
+
+    try:
+        # Используем метод Umeyama для оценки R и t
+        prev_centered = previous_points_3D - previous_points_3D.mean(axis=0)
+        curr_centered = current_points_3D - current_points_3D.mean(axis=0)
+
+        H = np.dot(curr_centered.T, prev_centered)
+        U, S, Vt = np.linalg.svd(H)
+        R = np.dot(U, Vt)
+
+        if np.linalg.det(R) < 0:
+            U[:, -1] *= -1
+            R = np.dot(U, Vt)
+
+        t = current_points_3D.mean(axis=0) - R @ previous_points_3D.mean(axis=0)
+
+        return R, t.reshape(-1, 1)
+
+    except Exception as e:
+        logger.error(f"Ошибка при оценке движения: {e}")
+        return np.eye(3), np.zeros((3, 1))
 
