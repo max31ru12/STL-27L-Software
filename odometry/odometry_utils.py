@@ -80,20 +80,6 @@ def print_matches(matches: list[cv2.DMatch], quantity: int | None = None):
         )
 
 
-def transform_calibration_and_projection_matrices(camera_calibration_parameters: dict[str, Any]):
-    # Пример для проекционной матрицы левой камеры (если она имеет размер 3x3, расширьте её до 3x4)
-    P_left = camera_calibration_parameters["P_LEFT"]
-    if P_left.shape == (3, 3):
-        P_left = np.hstack((P_left, np.zeros((3, 1))))
-
-    # Пример для проекционной матрицы правой камеры (если она имеет размер 3x3, расширьте её до 3x4)
-    P_right = camera_calibration_parameters["P_RIGHT"]
-    if P_right.shape == (3, 3):
-        P_right = np.hstack((P_right, np.zeros((3, 1))))
-
-    return P_left, P_right
-
-
 def triangulate_points(
         P_left: np.ndarray,
         P_right: np.ndarray,
