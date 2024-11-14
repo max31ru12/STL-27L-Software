@@ -1,10 +1,10 @@
 from serial import Serial
 from matplotlib import pyplot as plt
 
-from common.models import MoveNode
-from common.utils import measure_one_spin, plot_lidar_localization, plot_lidar_lines
-from common.config import Settings
-from common.filters import filter_noises
+from slam.models import MoveNode
+from slam.utils import measure_one_spin, plot_lidar_localization, plot_lidar_lines
+from slam.config import Settings
+from slam.filters import filter_noises
 
 SERIAL = Serial(Settings.PORT,
                 baudrate=Settings.BAUDRATE,

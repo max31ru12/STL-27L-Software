@@ -115,16 +115,6 @@ def triangulate_points(
 ) -> np.ndarray:
     """
     Выполняет триангуляцию для восстановления 3D-координат точек на основе совпадений.
-
-    Параметры:
-    - P_left: np.ndarray - Проекционная матрица для левой камеры (размер 3x4).
-    - P_right: np.ndarray - Проекционная матрица для правой камеры (размер 3x4).
-    - keypoints_left: list[cv2.KeyPoint] - Ключевые точки на левом изображении.
-    - keypoints_right: list[cv2.KeyPoint] - Ключевые точки на правом изображении.
-    - matches: list[cv2.DMatch] - Соответствия ключевых точек между левым и правым изображениями.
-
-    Возвращает:
-    - np.ndarray - Массив 3D-координат точек (размер Nx3), где N — количество точек.
     """
     try:
 
@@ -161,12 +151,13 @@ def get_matched_3D_points(
         previous_matches,
         matches,
         previous_left_and_current_left_matches,
-):
+) -> [np.ndarray, np.ndarray]:
     # Мапинг 3D-точек к их соответствиям
     previous_points_3D_map = {match.queryIdx: previous_keypoints_3D[i] for i, match in enumerate(previous_matches)}
     points_3D_map = {match.queryIdx: current_keypoints_3D[i] for i, match in enumerate(matches)}
 
-    matched_3D_points = []
+    previous_points_3D = []
+    current_points_3D = []
 
     for match in previous_left_and_current_left_matches:
         prev_idx = match.queryIdx  # индекс точки на предыдущем левом изображении
@@ -174,7 +165,10 @@ def get_matched_3D_points(
 
         # Проверяем, есть ли соответствующие 3D-точки в словарях
         if prev_idx in previous_points_3D_map and curr_idx in points_3D_map:
-            matched_3D_points.append((previous_points_3D_map[prev_idx], points_3D_map[curr_idx]))
+            previous_points_3D.append(previous_points_3D_map[prev_idx])
+            current_points_3D.append(points_3D_map[curr_idx])
+
+    return np.array(previous_points_3D), np.array(current_points_3D)
 
 
 def filter_matched_points(previous_points_3D, current_points_3D):

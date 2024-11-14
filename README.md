@@ -1,4 +1,4 @@
-# DTOF LIDAR STL-27L
+# DTOF LIDAR STL-27L with Stereo Visual Odometry
 
 Open source software for DTOF Lidar STL - 27L
 
