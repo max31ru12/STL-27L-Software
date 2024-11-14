@@ -4,30 +4,91 @@ from typing import Any
 import numpy as np
 import cv2
 from loguru import logger
-
+from matplotlib import pyplot as plt
 
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
 
 
-def draw_with_keypoints(
-        left_frame: cv2.Mat,
-        right_frame: cv2.Mat,
-        keypoints_left: list[cv2.KeyPoint],
-        keypoints_right: list[cv2.KeyPoint],
-) -> None:  # noqa
-    left_with_keypoints = cv2.drawKeypoints(left_frame, keypoints_left, None, color=(0, 255, 0), flags=0)  # noqa
-    right_with_keypoints = cv2.drawKeypoints(right_frame, keypoints_right, None, color=(0, 255, 0), flags=0)  # noqa
+class DebugTools:
 
-    # Отображение кадров с ключевыми точками
-    cv2.imshow("Left Camera with Keypoints", left_with_keypoints)
-    cv2.imshow("Right Camera with Keypoints", right_with_keypoints)
+    @classmethod
+    def draw_with_keypoints(
+            cls,
+            left_frame: cv2.Mat,
+            right_frame: cv2.Mat,
+            keypoints_left: list[cv2.KeyPoint],
+            keypoints_right: list[cv2.KeyPoint],
+    ) -> None:  # noqa
+        left_with_keypoints = cv2.drawKeypoints(left_frame, keypoints_left, None, color=(0, 255, 0), flags=0)  # noqa
+        right_with_keypoints = cv2.drawKeypoints(right_frame, keypoints_right, None, color=(0, 255, 0), flags=0)  # noqa
 
+        # Отображение кадров с ключевыми точками
+        cv2.imshow("Left Camera with Keypoints", left_with_keypoints)
+        cv2.imshow("Right Camera with Keypoints", right_with_keypoints)
 
-def print_keypoints(keypoints: list[cv2.KeyPoint], quantity: int | None = None):
-    if quantity is None or quantity > len(keypoints):
-        quantity = len(keypoints)
-    for i, kp in enumerate(keypoints[:quantity]):  # Выводим первые 5 ключевых точек
-        print(f"Точка {i + 1}: x={kp.pt[0]:.2f}, y={kp.pt[1]:.2f}, угол={kp.angle:.2f}, масштаб={kp.size:.2f}")
+    @classmethod
+    def print_keypoints(cls, keypoints: list[cv2.KeyPoint], quantity: int | None = None) -> None:
+        if quantity is None or quantity > len(keypoints):
+            quantity = len(keypoints)
+        for i, kp in enumerate(keypoints[:quantity]):  # Выводим первые 5 ключевых точек
+            print(f"Точка {i + 1}: x={kp.pt[0]:.2f}, y={kp.pt[1]:.2f}, угол={kp.angle:.2f}, масштаб={kp.size:.2f}")
+
+    @classmethod
+    def draw_keypoints_matches(
+            cls,
+            left_frame: cv2.UMat,
+            right_frame: cv2.UMat,
+            KP_left: list[cv2.KeyPoint],
+            KP_right: list[cv2.KeyPoint],
+            matches: list[cv2.DMatch],
+            quantity: int | None = None
+    ) -> None:  # noqa
+        """
+        KP_left - keypoints_left
+        KP_right - keypoints_right
+        """
+        if quantity is None or quantity > len(matches):
+            quantity = len(matches)
+        matched_frame = cv2.drawMatches(  # noqa
+            left_frame,
+            KP_left,
+            right_frame,
+            KP_right,
+            matches[:quantity],
+            None,
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+        )
+        cv2.imshow("Matches", matched_frame)
+
+    @classmethod
+    def print_matches(cls, matches: list[cv2.DMatch], quantity: int | None = None) -> None:
+        if quantity is None or quantity > len(matches):
+            quantity = len(matches)
+        for match in matches[:quantity]:  # noqa
+            print(
+                f"Index in Left Image: {match.queryIdx}, Index in Right Image: {match.trainIdx}, Distance: {match.distance}"
+            )
+
+    @classmethod
+    def visualize_path(cls, estimated_points_x, estimated_points_z, x_lim: int = 100, y_lim: int = 100) -> None:
+        # Разбиваем estimated_path на X и Z координаты
+        x_coords = estimated_points_x
+        z_coords = estimated_points_z
+
+        # Создаём график
+        plt.figure(figsize=(10, 6))
+        plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Estimated Path")
+
+        # Подписи для графика
+        plt.xlabel("X Position")
+        plt.ylabel("Z Position")
+        plt.title("Estimated Path Visualization")
+        plt.legend()
+        plt.grid(True)
+        plt.axis('equal')  # Чтобы сохранить пропорции
+        plt.xlim(-x_lim, x_lim)
+        plt.ylim(-y_lim, y_lim)
+        plt.show()
 
 
 def keypoints_is_empty(
@@ -43,41 +104,6 @@ def keypoints_is_empty(
     DES_right - descriptors_right
     """
     return not KP_left or not KP_right or DES_left is None or DES_right is None
-
-
-def draw_keypoints_matches(
-        left_frame: cv2.UMat,
-        right_frame: cv2.UMat,
-        KP_left: list[cv2.KeyPoint],
-        KP_right: list[cv2.KeyPoint],
-        matches: list[cv2.DMatch],
-        quantity: int | None = None
-):  # noqa
-    """
-    KP_left - keypoints_left
-    KP_right - keypoints_right
-    """
-    if quantity is None or quantity > len(matches):
-        quantity = len(matches)
-    matched_frame = cv2.drawMatches(  # noqa
-        left_frame,
-        KP_left,
-        right_frame,
-        KP_right,
-        matches[:quantity],
-        None,
-        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-    )
-    cv2.imshow("Matches", matched_frame)
-
-
-def print_matches(matches: list[cv2.DMatch], quantity: int | None = None):
-    if quantity is None or quantity > len(matches):
-        quantity = len(matches)
-    for match in matches[:quantity]:  # noqa
-        print(
-            f"Index in Left Image: {match.queryIdx}, Index in Right Image: {match.trainIdx}, Distance: {match.distance}"
-        )
 
 
 def triangulate_points(
@@ -129,31 +155,26 @@ def triangulate_points(
         return np.array([])
 
 
-def get_matched_3D_points(matches, previous_keypoints_3D, current_keypoints_3D):
-    """
-    Получает только те пары 3D-точек, которые имеют соответствия между предыдущим и текущим кадрами.
+def get_matched_3D_points(
+        previous_keypoints_3D,
+        current_keypoints_3D,
+        previous_matches,
+        matches,
+        previous_left_and_current_left_matches,
+):
+    # Мапинг 3D-точек к их соответствиям
+    previous_points_3D_map = {match.queryIdx: previous_keypoints_3D[i] for i, match in enumerate(previous_matches)}
+    points_3D_map = {match.queryIdx: current_keypoints_3D[i] for i, match in enumerate(matches)}
 
-    Параметры:
-    - matches: list[cv2.DMatch] - Список совпадений между кадрами.
-    - previous_keypoints_3D: np.ndarray - Массив 3D-точек из предыдущего кадра (Nx3).
-    - current_keypoints_3D: np.ndarray - Массив 3D-точек из текущего кадра (Mx3).
+    matched_3D_points = []
 
-    Возвращает:
-    - matched_prev_points: np.ndarray - Отфильтрованные 3D-точки из предыдущего кадра.
-    - matched_curr_points: np.ndarray - Отфильтрованные 3D-точки из текущего кадра.
-    """
-    matched_prev_points = []
-    matched_curr_points = []
+    for match in previous_left_and_current_left_matches:
+        prev_idx = match.queryIdx  # индекс точки на предыдущем левом изображении
+        curr_idx = match.trainIdx  # индекс точки на текущем левом изображении
 
-    for match in matches:
-        idx_prev = match.queryIdx  # Индекс точки в предыдущем кадре
-        idx_curr = match.trainIdx  # Индекс точки в текущем кадре
-
-        # Добавляем соответствующие точки
-        matched_prev_points.append(previous_keypoints_3D[idx_prev])
-        matched_curr_points.append(current_keypoints_3D[idx_curr])
-
-    return np.array(matched_prev_points), np.array(matched_curr_points)
+        # Проверяем, есть ли соответствующие 3D-точки в словарях
+        if prev_idx in previous_points_3D_map and curr_idx in points_3D_map:
+            matched_3D_points.append((previous_points_3D_map[prev_idx], points_3D_map[curr_idx]))
 
 
 def filter_matched_points(previous_points_3D, current_points_3D):
@@ -195,4 +216,6 @@ def estimate_motion(previous_points_3D: np.ndarray, current_points_3D: np.ndarra
     except Exception as e:
         logger.error(f"Ошибка при оценке движения: {e}")
         return np.eye(3), np.zeros((3, 1))
+
+
 
