@@ -30,12 +30,12 @@ logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", le
 # сx и сy - координаты главной точки (В ПИКСЕЛЯХ)
 
 CAMERA_CALIBRATION_PARAMETERS = {
-    "K_LEFT": np.array([[653.2621743,   0.,             304.81329016],
-                        [0.,            653.7921645,    229.71279112],
-                        [0.,            0.,             1.]]),
-    "K_RIGHT": np.array(np.array([[653.2621743,   0.,             304.81329016],
-                        [0.,            653.7921645,    229.71279112],
-                        [0.,            0.,             1.]]),),
+    "K_LEFT": np.array([[653.2621743, 0., 304.81329016],
+                        [0., 653.7921645, 229.71279112],
+                        [0., 0., 1.]]),
+    "K_RIGHT": np.array(np.array([[653.2621743, 0., 304.81329016],
+                                  [0., 653.7921645, 229.71279112],
+                                  [0., 0., 1.]]), ),
     # "FOCUS_DISTANCE": 3.67,  # в мм (миллиметр),
     # "EXTENSION": 3,  # в МегаПикселях
     # "PIXEL_REAL_DIMENSIONS": 1.4,  # в мкм (микрометр) УТОЧНИТЬ
@@ -53,7 +53,6 @@ K = np.array(
 # Левая камера - базовая, поэтому ее P - это [I | 0]
 P_LEFT = K @ np.hstack((np.eye(3), np.zeros((3, 1))))  # в чем задается
 P_RIGHT = K @ np.hstack((np.eye(3), np.array([[DISTANCE_BETWEEN_CAMERAS], [0], [0]])))
-
 
 # Инициализация ORB детектора
 KEY_POINTS_QUANTITY = 500
@@ -77,9 +76,9 @@ previous_ret_right, previous_right_frame = RIGHT_CAMERA.read()
 initial_position = np.array([0, 0, 0, 1])
 current_transform = np.eye(4)
 estimated_path = {
-    "x": [],
-    "y": [],
-    "z": [],
+    "x": [0],
+    "y": [0],
+    "z": [0],
 }
 
 while True:
@@ -119,7 +118,6 @@ while True:
     # текущей и предыдущей стереопарами
     previous_left_and_current_left_matches = BF_MATCHER.match(previous_descriptors_left, descriptors_left)
 
-
     # Вызов функции триангуляции после поиска соответствий
     previous_points_3D = triangulate_points(
         P_LEFT, P_RIGHT, previous_keypoints_left, previous_keypoints_right, previous_sorted_matches
@@ -128,32 +126,13 @@ while True:
         P_LEFT, P_RIGHT, keypoints_left, keypoints_right, sorted_matches
     )
 
-    matched_3D_points = []
-
-
-    # Мапинг 3D-точек к их соответствиям
-    previous_points_3D_map = {match.queryIdx: previous_points_3D[i] for i, match in enumerate(previous_sorted_matches)}
-    points_3D_map = {match.queryIdx: points_3D[i] for i, match in enumerate(sorted_matches)}
-
-    for match in previous_left_and_current_left_matches:
-        prev_idx = match.queryIdx  # индекс точки на предыдущем левом изображении
-        curr_idx = match.trainIdx  # индекс точки на текущем левом изображении
-
-        # Проверяем, есть ли соответствующие 3D-точки в словарях
-        if prev_idx in previous_points_3D_map and curr_idx in points_3D_map:
-            # Добавляем пару 3D-точек (из предыдущего и текущего кадров)
-            matched_3D_points.append((previous_points_3D_map[prev_idx], points_3D_map[curr_idx]))
-
-    new_matched_3D_points = get_matched_3D_points(
+    previous_points_3D, points_3D = get_matched_3D_points(
         previous_keypoints_3D=previous_points_3D,
         current_keypoints_3D=points_3D,
         previous_matches=previous_sorted_matches,
         matches=sorted_matches,
         previous_left_and_current_left_matches=previous_left_and_current_left_matches,
     )
-
-    assert new_matched_3D_points == matched_3D_points
-
 
     if previous_points_3D.size > 0 and points_3D.size > 0:
         R, t = estimate_motion(previous_points_3D, points_3D)
@@ -174,7 +153,8 @@ while True:
         estimated_path["y"].append(np.round(current_position[1], decimals=3))
         estimated_path["z"].append(np.round(current_position[2], decimals=3))
 
-        logger.info(f"Current position: X = {estimated_path['x'][-1]} Y = {estimated_path['y'][-1]} Z = {estimated_path['z'][-1]}")
+        logger.info(
+            f"Current position: X = {estimated_path['x'][-1]} Y = {estimated_path['y'][-1]} Z = {estimated_path['z'][-1]}")
 
     else:
         logger.warning("Не удалось вычислить 3D-точки для оценки движения")
@@ -186,7 +166,7 @@ while True:
     previous_left_frame, previous_right_frame = left_frame, right_frame
 
     # Ожидаем нажатия клавиши 'q' для выхода
-    if cv2.waitKey(1) & 0xFF == ord('q') or counter == 5:
+    if cv2.waitKey(1) & 0xFF == ord('q') or counter == 50:
         break
 
 LEFT_CAMERA.release()
@@ -203,6 +183,6 @@ cv2.destroyAllWindows()
 # DebugTools.draw_keypoints_matches(left_frame, right_frame, keypoints_left, keypoints_right, sorted_matches)
 
 
-visualize_path(estimated_path["x"], estimated_path["z"])
+DebugTools.visualize_path(estimated_path["x"], estimated_path["z"])
 
 print()
