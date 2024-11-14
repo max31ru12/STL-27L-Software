@@ -2,7 +2,7 @@ from typing import Any
 
 from matplotlib.collections import PathCollection
 
-from common.models import PointCloud, MoveNode
+from slam.models import PointCloud, MoveNode
 import math
 import matplotlib.pyplot as plt
 import serial
