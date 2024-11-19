@@ -1,15 +1,32 @@
 import sys
-from typing import Any
 
 import numpy as np
 import cv2
 from loguru import logger
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
+
 
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
 
 
+def filter_image(image, kernel_size: int = 7):
+    return cv2.GaussianBlur(image, (kernel_size, kernel_size), sigmaX=0)
+
+
+def read_images(left_camera, right_camera, gray=False):
+    ret_left, left_frame = left_camera.read()
+    ret_right, right_frame = right_camera.read()
+    left_frame = cv2.cvtColor(left_frame, cv2.COLOR_BGR2GRAY)
+    right_frame = cv2.cvtColor(right_frame, cv2.COLOR_BGR2GRAY)
+    return ret_left, left_frame, filter_image(ret_right), filter_image(right_frame)
+
+
 class DebugTools:
+
+    @classmethod
+    def show_two_frames(cls, left, right):
+        combined_frame = np.hstack((left, right))
+        cv2.imshow("Left and right frames", combined_frame)
 
     @classmethod
     def draw_with_keypoints(
@@ -70,6 +87,78 @@ class DebugTools:
             )
 
     @classmethod
+    def plot_3D_points(cls, previous_points_3D, points_3D):
+        """
+        Построение 3D облаков точек с одинаковым масштабом и системой координат.
+        """
+        # Находим общий диапазон координат для всех осей
+        all_points = np.vstack((previous_points_3D, points_3D))
+        x_min, x_max = np.min(all_points[:, 0]), np.max(all_points[:, 0])
+        y_min, y_max = np.min(all_points[:, 1]), np.max(all_points[:, 1])
+        z_min, z_max = max(0, np.min(all_points[:, 2])), np.max(all_points[:, 2])  # Z не должен быть отрицательным
+
+        # Создаём канву с двумя подграфиками
+        fig = plt.figure(figsize=(12, 6))
+
+        # Первый график для previous_points_3D
+        ax1 = fig.add_subplot(121, projection='3d')
+        ax1.scatter(previous_points_3D[:, 0], previous_points_3D[:, 2], previous_points_3D[:, 1], c='r', marker='o')
+        ax1.set_title("Previous Points 3D")
+        ax1.set_xlabel("X")
+        ax1.set_ylabel("Z")
+        ax1.set_zlabel("Y")
+
+        # Устанавливаем одинаковый масштаб
+        ax1.set_xlim([x_min, x_max])
+        ax1.set_ylim([z_min, z_max])
+        ax1.set_zlim([y_min, y_max])
+
+        # Второй график для points_3D
+        ax2 = fig.add_subplot(122, projection='3d')
+        ax2.scatter(points_3D[:, 0], points_3D[:, 2], points_3D[:, 1], c='b', marker='^')
+        ax2.set_title("Current Points 3D")
+        ax2.set_xlabel("X")
+        ax2.set_ylabel("Z")
+        ax2.set_zlabel("Y")
+
+        # Устанавливаем одинаковый масштаб
+        ax2.set_xlim([x_min, x_max])
+        ax2.set_ylim([z_min, z_max])
+        ax2.set_zlim([y_min, y_max])
+
+        # Показать графики
+        plt.tight_layout()
+        plt.show()
+
+    @classmethod
+    def plot_2D_points_X_Z(cls, previous_points_3D, points_3D):
+        # Находим общий диапазон координат для всех осей
+        x_coordinates_current = points_3D[:, 0]
+        z_coordinates_current = points_3D[:, 2]
+
+        x_coordinates_previous = previous_points_3D[:, 0]
+        z_coordinates_previous = previous_points_3D[:, 2]
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+        axes[0].scatter(x_coordinates_current, z_coordinates_current)
+        axes[0].set_title("Текущие координаты")
+        axes[0].set_xlabel("X")
+        axes[0].set_ylabel("Z")
+        axes[0].set_xlim(-5, 5)
+        axes[0].set_ylim(0, 10)
+
+        axes[1].scatter(x_coordinates_previous, z_coordinates_previous)
+        axes[1].set_title("предыдущие координаты")
+        axes[1].set_xlabel("X")
+        axes[1].set_ylabel("Z")
+        axes[1].set_xlim(-5, 5)
+        axes[1].set_ylim(0, 10)
+
+        plt.tight_layout()
+        plt.show()
+
+    @classmethod
     def visualize_path(cls, estimated_points_x, estimated_points_z, x_lim: int = 100, y_lim: int = 100) -> None:
         # Разбиваем estimated_path на X и Z координаты
         x_coords = estimated_points_x
@@ -103,6 +192,7 @@ def keypoints_is_empty(
     DES_left - descriptors_left
     DES_right - descriptors_right
     """
+    # DON'T UPDATE PREVIOUS STATE
     return not KP_left or not KP_right or DES_left is None or DES_right is None
 
 
@@ -111,33 +201,57 @@ def triangulate_points(
         P_right: np.ndarray,
         keypoints_left: list[cv2.KeyPoint],
         keypoints_right: list[cv2.KeyPoint],
-        matches: list[cv2.DMatch]
+        matches: list[cv2.DMatch],
+        log=False,
 ) -> np.ndarray:
     """
     Выполняет триангуляцию для восстановления 3D-координат точек на основе совпадений.
+    Нормализация не требуется.
     """
-    try:
 
+    # Функция для фильтрации выбросов
+    def filter_outliers(points_3D):  # noqa
+        mean = np.mean(points_3D, axis=0)
+        std = np.std(points_3D, axis=0)
+        mask = np.all(np.abs(points_3D - mean) < 3 * std, axis=1)
+        return points_3D[mask]
+
+    try:
         # Извлечение координат ключевых точек только для совпадений
         pts_left = np.array([keypoints_left[match.queryIdx].pt for match in matches], dtype=np.float32)
         pts_right = np.array([keypoints_right[match.trainIdx].pt for match in matches], dtype=np.float32)
 
         # Выполняем триангуляцию
-        points_4D_homogeneous = cv2.triangulatePoints(P_left, P_right, pts_left.T, pts_right.T)
+        points_4D_homogeneous = cv2.triangulatePoints(
+            P_left, P_right,
+            pts_left.T, pts_right.T
+        )
 
         # Конвертация однородных координат в 3D (делим на w)
         points_3D = points_4D_homogeneous[:3] / points_4D_homogeneous[3]
-        points_3D = points_3D.T  # Транспонируем для получения формата Nx3
+        points_3D = points_3D.T  # Транспонируем для формата Nx3
 
-        # logger.info("Успешно выполнена триангуляция.")
+        # Фильтрация выбросов
+        points_3D = filter_outliers(points_3D)
+
+        # Удаляем точки с Z <= 0
+        valid_points_mask = points_3D[:, 2] > 0
+        points_3D = points_3D[valid_points_mask]
+
+
+        if log:
+            logger.info(f"Количество точек до фильтрации: {points_4D_homogeneous.shape[1]}")
+            logger.info(f"Количество точек после фильтрации выбросов: {len(points_3D)}")
+            logger.info(f"Диапазон Z-координат: min = {np.min(points_3D[:, 2])}, max = {np.max(points_3D[:, 2])}")
+
+        if len(points_3D) == 0:
+            logger.warning("Все 3D точки некорректны (Z <= 0).")
+            return np.array([])
+
         return points_3D
 
     except cv2.error as e:
         logger.error(f"Ошибка OpenCV при триангуляции: {e}")
-        return np.array([])  # Возвращаем пустой массив, если произошла ошибка OpenCV
-
-    except ValueError as e:
-        logger.error(f"Ошибка значения: {e}")
         return np.array([])
 
     except Exception as e:
@@ -152,9 +266,23 @@ def get_matched_3D_points(
         matches,
         previous_left_and_current_left_matches,
 ) -> [np.ndarray, np.ndarray]:
-    # Мапинг 3D-точек к их соответствиям
-    previous_points_3D_map = {match.queryIdx: previous_keypoints_3D[i] for i, match in enumerate(previous_matches)}
-    points_3D_map = {match.queryIdx: current_keypoints_3D[i] for i, match in enumerate(matches)}
+    """
+    Выходные данные имеют одинаковый размер
+    """
+    # Логирование для отладки
+    # logger.info(f"{len(previous_matches)=}, {len(matches)=}")
+
+    # Мапинг 3D-точек к их соответствиям с проверкой на выход за пределы
+    previous_points_3D_map = {
+        match.queryIdx: previous_keypoints_3D[match.queryIdx]
+        for match in previous_matches
+        if match.queryIdx < len(previous_keypoints_3D)
+    }
+    points_3D_map = {
+        match.queryIdx: current_keypoints_3D[match.queryIdx]
+        for match in matches
+        if match.queryIdx < len(current_keypoints_3D)
+    }
 
     previous_points_3D = []
     current_points_3D = []
@@ -168,23 +296,20 @@ def get_matched_3D_points(
             previous_points_3D.append(previous_points_3D_map[prev_idx])
             current_points_3D.append(points_3D_map[curr_idx])
 
-    return np.array(previous_points_3D), np.array(current_points_3D)
+    # Преобразование списков в numpy массивы
+    previous_points_3D = np.array(previous_points_3D)
+    current_points_3D = np.array(current_points_3D)
 
+    if len(previous_points_3D) == 0 or len(current_points_3D) == 0:
+        logger.warning("Не удалось найти совпадающие 3D-точки между предыдущим и текущим кадрами.")
 
-def filter_matched_points(previous_points_3D, current_points_3D):
-    """
-    Фильтрует 3D-точки, чтобы количество точек в двух кадрах совпадало.
-    """
-    min_len = min(len(previous_points_3D), len(current_points_3D))
-    return previous_points_3D[:min_len], current_points_3D[:min_len]
+    return previous_points_3D, current_points_3D
 
 
 def estimate_motion(previous_points_3D: np.ndarray, current_points_3D: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Определяет изменение позы камеры между двумя наборами 3D-точек.
     """
-    # Фильтрация точек для совпадения по размеру
-    previous_points_3D, current_points_3D = filter_matched_points(previous_points_3D, current_points_3D)
 
     if previous_points_3D.shape[0] < 4 or current_points_3D.shape[0] < 4:
         logger.warning("Недостаточно 3D-точек для оценки движения.")
