@@ -31,7 +31,7 @@ prev_img_shape = None
 # in a given directory. Since no path is
 # specified, it will take current directory
 # jpg files alone
-images = glob.glob('*.jpg')
+images = glob.glob('calibration_images/*.jpg')
 
 for filename in images:
     image = cv2.imread(filename)
@@ -64,7 +64,7 @@ for filename in images:
                                           CHECKERBOARD,
                                           corners2, ret)
 
-    cv2.imshow('img', image)
+    # cv2.imshow('img', image)
     cv2.waitKey(0)
 
 cv2.destroyAllWindows()
@@ -78,6 +78,9 @@ h, w = image.shape[:2]
 ret, matrix, distortion, r_vecs, t_vecs = cv2.calibrateCamera(
     threedpoints, twodpoints, grayColor.shape[::-1], None, None
 )
+
+
+newcameramtx, roi = cv2.getOptimalNewCameraMatrix(matrix, distortion, (w, h), 1, (w, h))
 
 # Displaying required output
 print(" Camera matrix:")
