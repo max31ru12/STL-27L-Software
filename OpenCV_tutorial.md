@@ -1,33 +1,4 @@
-
 # OpenCV
-
-### Всякая дичь из `cv2`
-
-- `cv2.resize(img, (w, h))` - изменить размеры
-- `img[0:100, 0:150]` - обрезка
-- `h, w = img.shape` - размеры изображения
-- `cv2.flip()` - отзеркальивание
-- `cv2.waiKey()` - сколько картинка будет длиться (иногда необходимо вызывать)
-- `cv2.getRotationMatrix()` - матрица поворота вокруг точки (ее передаем в следующий метод)
-- `cv2.warpAffine()` - эта штука вернет повернутое изображение
-- `b, g, r = cv2.split(img)` - разбить картинку по слоям
-- `img = cv2.merge([b, g, r])` - собрать изображение
-
-
-### Размытие
-
-`Второй параметр` - сила размытия 
-
-`Третий` - множитель размытия
-
-**Указываем только нечетные числа: (3, 3)**
-
-```py
-import cv2
-
-img = cv2.GaussianBlur(img, (3, 3), 0)
-```
-
 
 ### Привести изображение к ЧБ
 
@@ -70,7 +41,7 @@ kernel = np.ones((5, 5), np.uint8)
 img = cv2.dilate(img, kernel, iterations=1)
 ```
 
-По сути дилатация
+По сути эрозия
 
 ```py
 import cv2
@@ -148,3 +119,87 @@ while True:
 capture.release()
 cv2.destroyAllWindows()
 ```
+
+
+## Drawing
+
+**Функции**: cv2.line(), cv2.circle() , cv2.rectangle(), cv2.ellipse(), cv2.putText()
+
+```python
+import numpy as np
+import cv2
+# Create a black image
+img = np.zeros((512,512,3), np.uint8)
+# Draw a diagonal blue line with thickness
+```
+
+## Acessing Pixels
+
+```python
+import cv2
+
+img = cv2.imread('messi5.jpg')
+px = img[100,100]
+```
+
+
+## Image properties
+
+### Image rows, columns and channels `img.shape`
+
+- (342, 548, 3) - для цветного
+- (342, 548) - для ЧБ
+
+### Total number of pixels: `img.size`
+
+### Image datatype: `img.dtype`
+
+### Channels
+
+```
+b, g, r = cv2.split(img)
+img = cv2.merge((b,g,r))
+```
+
+## Filter Noises with Blurring
+
+### Averaging 
+
+Берет ядро (область) вокруг пикселя, высчитывает среднее для этой области, 
+заменяет интенсивность пикселя на это среднее
+
+```
+img = cv2.imread('opencv_logo.png')
+blur = cv2.blur(img, (5, 5))
+```
+
+### Gaussian Filter
+
+Убирает гауссовские шумы. Задаем ядро `(5, 5)` для фильтра (положительное и желательно нечетное).
+`0` - стандартное отклонение, может быть задано как X и Y 
+```
+blur = cv2.GaussianBlur(img,(5,5),0)
+```
+
+### Median Filter
+
+Хорошо убирвает соль и перец.
+
+```
+median = cv2.medianBlur(img,5)
+```
+
+
+### Bilateral Filtering
+
+Размытие с сохранением краев
+
+```
+blur = cv2.bilateralFilter(img,9,75,75)
+```
+
+
+
+
+
+

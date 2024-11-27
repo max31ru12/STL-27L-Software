@@ -1,4 +1,5 @@
 import sys
+from typing import Iterable
 
 import numpy as np
 import cv2
@@ -9,24 +10,56 @@ import matplotlib.pyplot as plt
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
 
 
-def filter_image(image, kernel_size: int = 7):
+def undistort_image(
+        img: cv2.Mat,
+        camera_matrix: np.array,
+        optimized_camera_matrix: np.array,
+        distortion_coefficients,
+        roi: Iterable,
+):
+    dst = cv2.undistort(img, camera_matrix, distortion_coefficients, None, optimized_camera_matrix)
+    x, y, w, h = roi
+    dst = dst[y:y + h, x:x + w]
+    return dst
+
+
+def gaussian_filter_image(image, kernel_size: int = 7):
     return cv2.GaussianBlur(image, (kernel_size, kernel_size), sigmaX=0)
 
 
 def read_images(left_camera, right_camera, gray=False):
     ret_left, left_frame = left_camera.read()
     ret_right, right_frame = right_camera.read()
-    left_frame = cv2.cvtColor(left_frame, cv2.COLOR_BGR2GRAY)
-    right_frame = cv2.cvtColor(right_frame, cv2.COLOR_BGR2GRAY)
-    return ret_left, left_frame, filter_image(ret_right), filter_image(right_frame)
+    if gray:
+        left_frame = cv2.cvtColor(left_frame, cv2.COLOR_BGR2GRAY)
+        right_frame = cv2.cvtColor(right_frame, cv2.COLOR_BGR2GRAY)
+    return ret_left, left_frame, ret_right, right_frame
 
 
 class DebugTools:
 
     @classmethod
-    def show_two_frames(cls, left, right):
+    def show_two_frames(cls, left, right) -> None:
         combined_frame = np.hstack((left, right))
         cv2.imshow("Left and right frames", combined_frame)
+
+    @classmethod
+    def show_disparity_map(cls, disparity, normalized=False) -> None:
+        """
+        Светлые области — ближние объекты.
+        Тёмные области — дальние объекты.
+        """
+        if normalized:
+            # нормализация нужна для визуализации
+            disparity_normalized = cv2.normalize(disparity,  # noqa
+                                                 None,
+                                                 alpha=0,
+                                                 beta=255,
+                                                 norm_type=cv2.NORM_MINMAX,
+                                                 dtype=cv2.CV_8U)
+            cv2.imshow("Disparity Map", disparity_normalized)
+        else:
+            cv2.imshow("Disparity Map", disparity)
 
     @classmethod
     def draw_with_keypoints(
@@ -158,6 +191,7 @@ class DebugTools:
         plt.tight_layout()
         plt.show()
 
+
     @classmethod
     def visualize_path(cls, estimated_points_x, estimated_points_z, x_lim: int = 100, y_lim: int = 100) -> None:
         # Разбиваем estimated_path на X и Z координаты
@@ -221,7 +255,7 @@ def triangulate_points(
         pts_left = np.array([keypoints_left[match.queryIdx].pt for match in matches], dtype=np.float32)
         pts_right = np.array([keypoints_right[match.trainIdx].pt for match in matches], dtype=np.float32)
 
-        # Выполняем триангуляцию
+        # Выполняем триангуляцию (Сделать гомогенную матрицу)
         points_4D_homogeneous = cv2.triangulatePoints(
             P_left, P_right,
             pts_left.T, pts_right.T
@@ -232,11 +266,11 @@ def triangulate_points(
         points_3D = points_3D.T  # Транспонируем для формата Nx3
 
         # Фильтрация выбросов
-        points_3D = filter_outliers(points_3D)
+        # points_3D = filter_outliers(points_3D)
 
         # Удаляем точки с Z <= 0
-        valid_points_mask = points_3D[:, 2] > 0
-        points_3D = points_3D[valid_points_mask]
+        # valid_points_mask = points_3D[:, 2] > 0
+        # points_3D = points_3D[valid_points_mask]
 
 
         if log:
@@ -265,12 +299,11 @@ def get_matched_3D_points(
         previous_matches,
         matches,
         previous_left_and_current_left_matches,
+        log=False
 ) -> [np.ndarray, np.ndarray]:
     """
     Выходные данные имеют одинаковый размер
     """
-    # Логирование для отладки
-    # logger.info(f"{len(previous_matches)=}, {len(matches)=}")
 
     # Мапинг 3D-точек к их соответствиям с проверкой на выход за пределы
     previous_points_3D_map = {
@@ -300,8 +333,11 @@ def get_matched_3D_points(
     previous_points_3D = np.array(previous_points_3D)
     current_points_3D = np.array(current_points_3D)
 
-    if len(previous_points_3D) == 0 or len(current_points_3D) == 0:
-        logger.warning("Не удалось найти совпадающие 3D-точки между предыдущим и текущим кадрами.")
+    if log:
+        logger.info(f"{len(previous_matches)=}, {len(matches)=}")
+        if len(previous_points_3D) == 0 or len(current_points_3D) == 0:
+            # Логирование для отладки
+            logger.warning("Не удалось найти совпадающие 3D-точки между предыдущим и текущим кадрами.")
 
     return previous_points_3D, current_points_3D
 

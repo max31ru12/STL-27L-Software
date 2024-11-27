@@ -5,15 +5,20 @@ import numpy as np
 import cv2
 from loguru import logger
 
-from odometry.config import ORB_DETECTOR, BF_MATCHER, P_LEFT, P_RIGHT, FPS
+from odometry.config import ORB_DETECTOR, BF_MATCHER, P_LEFT, P_RIGHT, FPS, ROI, DISTORTION_COEFFICIENTS, \
+    OPTIMIZED_CAMERA_MATRIX, CAMERA_MATRIX
 from odometry.odometry_utils import (
     DebugTools,
     keypoints_is_empty,
     triangulate_points,
-    estimate_motion, get_matched_3D_points, read_images, filter_image,
+    estimate_motion,
+    get_matched_3D_points,
+    read_images,
+    undistort_image,
 )
 
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
+
 LEFT_CAMERA = cv2.VideoCapture(0)
 RIGHT_CAMERA = cv2.VideoCapture(2)
 
@@ -39,6 +44,13 @@ while True:
     time.sleep(1 / FPS)
 
     ret_left, left_frame, ret_right, right_frame = read_images(LEFT_CAMERA, RIGHT_CAMERA, gray=True)
+
+    left_frame = undistort_image(
+        left_frame, CAMERA_MATRIX, OPTIMIZED_CAMERA_MATRIX, DISTORTION_COEFFICIENTS, ROI
+    )
+    right_frame = undistort_image(
+        right_frame, CAMERA_MATRIX, OPTIMIZED_CAMERA_MATRIX, DISTORTION_COEFFICIENTS, ROI
+    )
 
     if not ret_left or not ret_right:
         logger.error("Не удалось захватить кадры с обеих камер")
@@ -69,12 +81,17 @@ while True:
 
     previous_left_and_current_left_matches = BF_MATCHER.match(previous_descriptors_left, descriptors_left)
 
+    # Какая метрика у 3D-точек???
     previous_points_3D = triangulate_points(
         P_LEFT, P_RIGHT, previous_keypoints_left, previous_keypoints_right, previous_sorted_matches, log=True
     )
     points_3D = triangulate_points(
         P_LEFT, P_RIGHT, keypoints_left, keypoints_right, sorted_matches, log=True
     )
+
+    # DebugTools.draw_keypoints_matches(left_frame, right_frame, keypoints_left, keypoints_right, matches)
+    # DebugTools.plot_3D_points(previous_points_3D, points_3D)
+    # DebugTools.plot_2D_points_X_Z(previous_points_3D, points_3D)
 
     try:
         previous_points_3D, points_3D = get_matched_3D_points(
@@ -85,12 +102,14 @@ while True:
             previous_left_and_current_left_matches=previous_left_and_current_left_matches,
         )
     except Exception as e:
+        print(f"Exception: {e}")
         continue
 
     if previous_points_3D.size > 0 and points_3D.size > 0:
         R, t = estimate_motion(previous_points_3D, points_3D)
         logger.info(f"Изменение позы:\nМатрица вращения:\n{R}\nВектор трансляции:\n{t}")
 
+    print()
 
     previous_left_frame, previous_right_frame = left_frame, right_frame
     cv2.waitKey(1)
