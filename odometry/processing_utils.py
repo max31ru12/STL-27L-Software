@@ -97,4 +97,12 @@ class ProcessingUtils:
 
 
 class Filters:
-    ...
+
+    @classmethod
+    def filter_points(cls, good_prev, good_curr):
+        height, width = 480, 640
+        valid_indices = (
+                (good_prev[:, 1] >= 0) & (good_prev[:, 1] < height) &
+                (good_prev[:, 0] >= 0) & (good_prev[:, 0] < width)
+        )
+        return good_prev[valid_indices], good_curr[valid_indices]

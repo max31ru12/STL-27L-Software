@@ -170,12 +170,12 @@ class DebugTools:
 
         # Создаём график
         plt.figure(figsize=(10, 6))
-        plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Estimated Path")
+        plt.plot(x_coords, z_coords, marker='o', markersize=3, color="blue", linewidth=1, label="Траектория")
 
         # Подписи для графика
-        plt.xlabel("X Position")
-        plt.ylabel("Z Position")
-        plt.title("Estimated Path Visualization")
+        plt.xlabel("X, метров")
+        plt.ylabel("Z, метров")
+        plt.title("Траектория движения системы")
         plt.legend()
         plt.grid(True)
         plt.axis('equal')  # Чтобы сохранить пропорции
